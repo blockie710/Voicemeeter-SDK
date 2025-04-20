@@ -1,29 +1,50 @@
 /**
- * Constants defining the maximum number of strips (inputs) for each Voicemeeter type
+ * Constants used by the Voicemeeter SDK
  */
-export const VOICEMEETER_STRIP_COUNT = {
-  basic: 3,
-  banana: 5,
-  potato: 8
+
+/**
+ * Maximum number of strips (input channels) for each Voicemeeter type
+ */
+export const STRIP_COUNT = {
+  basic: 3, // 2 physical + 1 virtual
+  banana: 5, // 3 physical + 2 virtual
+  potato: 8, // 5 physical + 3 virtual
 };
 
 /**
- * Constants defining the maximum number of buses (outputs) for each Voicemeeter type
+ * Maximum number of buses (output channels) for each Voicemeeter type
  */
-export const VOICEMEETER_BUS_COUNT = {
-  basic: 2,
-  banana: 5,
-  potato: 8
+export const BUS_COUNT = {
+  basic: 2, // 1 physical + 1 virtual
+  banana: 5, // 3 physical + 2 virtual
+  potato: 8, // 5 physical + 3 virtual
 };
 
 /**
- * Error message constants for consistent error reporting
+ * Default polling interval for parameter updates in milliseconds
+ */
+export const DEFAULT_POLLING_INTERVAL = 100;
+
+/**
+ * Parameter path prefixes for different parameter types
+ */
+export const PARAMETER_PATHS = {
+  STRIP: 'Strip',
+  BUS: 'Bus',
+  BUTTON: 'Button',
+  VBAN: 'VBAN',
+};
+
+/**
+ * Error messages for consistent error reporting
  */
 export const ERROR_MESSAGES = {
   NOT_CONNECTED: 'Not connected to Voicemeeter. Call login() first.',
-  INVALID_PARAM: 'Invalid parameter name.',
+  INVALID_PARAMETER: 'Invalid parameter name.',
   INVALID_VALUE: 'Invalid parameter value.',
   CONNECTION_FAILED: 'Failed to connect to Voicemeeter. Make sure it is installed and running.',
-  PARAMETER_SET_FAILED: 'Failed to set parameter.',
-  PARAMETER_GET_FAILED: 'Failed to get parameter value.'
+  NOT_INSTALLED: 'Voicemeeter is not installed.',
+  INITIALIZATION_FAILED: 'Failed to initialize Voicemeeter remote API.',
+  PARAMETER_SET_FAILED: 'Failed to set parameter value.',
+  PARAMETER_GET_FAILED: 'Failed to get parameter value.',
 };
