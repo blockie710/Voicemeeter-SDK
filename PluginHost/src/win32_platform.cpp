@@ -12,69 +12,89 @@
 
 // Helper function to get special folder path
 std::string getSpecialFolderPath(int csidl) {
-    char path[MAX_PATH] = {0};
-    if (SHGetFolderPathA(NULL, csidl, NULL, 0, path) == S_OK) {
-        return path;
+    wchar_t path[MAX_PATH];
+    if (SUCCEEDED(SHGetFolderPathW(NULL, csidl, NULL, 0, path))) {
+        return wideToUtf8(path);
     }
     return "";
 }
 
 // Get application data directory
 std::string getAppDataPath() {
-    std::string path = getSpecialFolderPath(CSIDL_APPDATA);
-    if (!path.empty()) {
-        path += "\\VoicemeeterPluginHost\\";
-        std::filesystem::create_directories(path);
-    }
-    return path;
+    return getSpecialFolderPath(CSIDL_APPDATA);
 }
 
 // Get user documents directory
 std::string getUserDocumentsPath() {
-    std::string path = getSpecialFolderPath(CSIDL_PERSONAL);
-    if (!path.empty()) {
-        path += "\\VoicemeeterPluginHost\\";
-        std::filesystem::create_directories(path);
-    }
-    return path;
+    return getSpecialFolderPath(CSIDL_MYDOCUMENTS);
 }
 
 // Get Windows-specific VST3 plugin directory
 std::string getVST3PluginDirectory() {
-    std::string programFiles = getSpecialFolderPath(CSIDL_PROGRAM_FILES);
-    if (!programFiles.empty()) {
-        return programFiles + "\\Common Files\\VST3\\";
-    }
-    return "";
+    // Common Files\VST3 is the standard location
+    return getSpecialFolderPath(CSIDL_PROGRAM_FILES_COMMON) + "\\VST3";
 }
 
 // Get Windows-specific AAX plugin directory
 std::string getAAXPluginDirectory() {
-    std::string programFiles = getSpecialFolderPath(CSIDL_PROGRAM_FILES);
-    if (!programFiles.empty()) {
-        return programFiles + "\\Common Files\\Avid\\Audio\\Plug-Ins\\";
-    }
-    return "";
+    // Common Files\Avid\Audio\Plug-Ins is the standard location for AAX
+    return getSpecialFolderPath(CSIDL_PROGRAM_FILES_COMMON) + "\\Avid\\Audio\\Plug-Ins";
 }
 
 // Convert UTF-8 string to wide (UTF-16) string 
 std::wstring utf8ToWide(const std::string& utf8) {
-    if (utf8.empty()) return std::wstring();
+    if (utf8.empty()) {
+        return std::wstring();
+    }
     
-    int size_needed = MultiByteToWideChar(CP_UTF8, 0, utf8.data(), (int)utf8.size(), NULL, 0);
-    std::wstring result(size_needed, 0);
-    MultiByteToWideChar(CP_UTF8, 0, utf8.data(), (int)utf8.size(), &result[0], size_needed);
-    return result;
+    // Calculate required buffer size
+    int size_needed = MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, NULL, 0);
+    if (size_needed <= 0) {
+        std::cerr << "utf8ToWide: MultiByteToWideChar failed with error " << GetLastError() << std::endl;
+        return std::wstring();
+    }
+    
+    // Allocate buffer and convert
+    std::wstring wide(size_needed, 0);
+    if (MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, &wide[0], size_needed) <= 0) {
+        std::cerr << "utf8ToWide: MultiByteToWideChar failed with error " << GetLastError() << std::endl;
+        return std::wstring();
+    }
+    
+    // Remove the null terminator from the std::wstring
+    if (!wide.empty() && wide.back() == L'\0') {
+        wide.pop_back();
+    }
+    
+    return wide;
 }
 
 // Convert wide (UTF-16) string to UTF-8 string
 std::string wideToUtf8(const std::wstring& wide) {
-    if (wide.empty()) return std::string();
+    if (wide.empty()) {
+        return std::string();
+    }
     
-    int size_needed = WideCharToMultiByte(CP_UTF8, 0, wide.data(), (int)wide.size(), NULL, 0, NULL, NULL);
-    std::string result(size_needed, 0);
-    WideCharToMultiByte(CP_UTF8, 0, wide.data(), (int)wide.size(), &result[0], size_needed, NULL, NULL);
-    return result;
+    // Calculate required buffer size
+    int size_needed = WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), -1, NULL, 0, NULL, NULL);
+    if (size_needed <= 0) {
+        std::cerr << "wideToUtf8: WideCharToMultiByte failed with error " << GetLastError() << std::endl;
+        return std::string();
+    }
+    
+    // Allocate buffer and convert
+    std::string utf8(size_needed, 0);
+    if (WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), -1, &utf8[0], size_needed, NULL, NULL) <= 0) {
+        std::cerr << "wideToUtf8: WideCharToMultiByte failed with error " << GetLastError() << std::endl;
+        return std::string();
+    }
+    
+    // Remove the null terminator from the std::string
+    if (!utf8.empty() && utf8.back() == '\0') {
+        utf8.pop_back();
+    }
+    
+    return utf8;
 }
 
 // Show a message dialog
@@ -163,7 +183,7 @@ void* createWindow(const std::string& title, int width, int height, void* parent
         wc.lpszClassName = windowClassName;
         
         if (!RegisterClass(&wc)) {
-            std::cerr << "Failed to register window class" << std::endl;
+            std::cerr << "Failed to register window class: " << GetLastError() << std::endl;
             return NULL;
         }
         
@@ -184,7 +204,7 @@ void* createWindow(const std::string& title, int width, int height, void* parent
     );
     
     if (!hwnd) {
-        std::cerr << "Failed to create window" << std::endl;
+        std::cerr << "Failed to create window: " << GetLastError() << std::endl;
         return NULL;
     }
     
@@ -193,22 +213,27 @@ void* createWindow(const std::string& title, int width, int height, void* parent
 
 // Show a window
 void showWindow(void* window) {
+    if (!window) return;
     ShowWindow((HWND)window, SW_SHOW);
     UpdateWindow((HWND)window);
 }
 
 // Hide a window
 void hideWindow(void* window) {
+    if (!window) return;
     ShowWindow((HWND)window, SW_HIDE);
 }
 
 // Destroy a window
 void destroyWindow(void* window) {
+    if (!window) return;
     DestroyWindow((HWND)window);
 }
 
 // Windows-specific VST3 plugin editor helper
 void* createVST3PluginEditorWindow(void* parentWindow, const std::string& title) {
+    if (!parentWindow) return NULL;
+    
     // Create a child window for the VST3 plugin editor
     HWND hwnd = CreateWindowA(
         "STATIC",
@@ -221,11 +246,17 @@ void* createVST3PluginEditorWindow(void* parentWindow, const std::string& title)
         NULL
     );
     
+    if (!hwnd) {
+        std::cerr << "Failed to create VST3 plugin editor window: " << GetLastError() << std::endl;
+    }
+    
     return hwnd;
 }
 
 // Windows-specific AAX plugin editor helper
 void* createAAXPluginEditorWindow(void* parentWindow, const std::string& title) {
+    if (!parentWindow) return NULL;
+    
     // Create a child window for the AAX plugin editor
     HWND hwnd = CreateWindowA(
         "STATIC",
@@ -238,135 +269,66 @@ void* createAAXPluginEditorWindow(void* parentWindow, const std::string& title) 
         NULL
     );
     
+    if (!hwnd) {
+        std::cerr << "Failed to create AAX plugin editor window: " << GetLastError() << std::endl;
+    }
+    
     return hwnd;
 }
 
 // Windows registry helper functions
 bool getRegistryValueString(HKEY root, const std::string& subKey, const std::string& valueName, std::string& value) {
     HKEY hKey;
-    DWORD type;
-    DWORD dataSize = 0;
-    char data[1024] = {0};
-    
-    if (RegOpenKeyExA(root, subKey.c_str(), 0, KEY_READ, &hKey) != ERROR_SUCCESS) {
+    LONG result = RegOpenKeyExA(root, subKey.c_str(), 0, KEY_READ, &hKey);
+    if (result != ERROR_SUCCESS) {
         return false;
     }
     
-    dataSize = sizeof(data);
-    if (RegQueryValueExA(hKey, valueName.c_str(), NULL, &type, (BYTE*)data, &dataSize) != ERROR_SUCCESS || type != REG_SZ) {
+    DWORD type;
+    DWORD dataSize = 0;
+    
+    // Get the size of the value
+    result = RegQueryValueExA(hKey, valueName.c_str(), NULL, &type, NULL, &dataSize);
+    if (result != ERROR_SUCCESS || type != REG_SZ) {
         RegCloseKey(hKey);
         return false;
     }
     
-    value = std::string(data, dataSize);
+    // Allocate buffer and read the value
+    std::vector<char> data(dataSize);
+    result = RegQueryValueExA(hKey, valueName.c_str(), NULL, NULL, reinterpret_cast<LPBYTE>(&data[0]), &dataSize);
     RegCloseKey(hKey);
+    
+    if (result != ERROR_SUCCESS) {
+        return false;
+    }
+    
+    // Convert to string
+    value = std::string(data.begin(), data.end());
+    
+    // Remove any trailing null characters
+    size_t nullPos = value.find('\0');
+    if (nullPos != std::string::npos) {
+        value = value.substr(0, nullPos);
+    }
+    
     return true;
 }
 
 bool getRegistryValueDword(HKEY root, const std::string& subKey, const std::string& valueName, DWORD& value) {
     HKEY hKey;
+    LONG result = RegOpenKeyExA(root, subKey.c_str(), 0, KEY_READ, &hKey);
+    if (result != ERROR_SUCCESS) {
+        return false;
+    }
+    
     DWORD type;
     DWORD dataSize = sizeof(DWORD);
     
-    if (RegOpenKeyExA(root, subKey.c_str(), 0, KEY_READ, &hKey) != ERROR_SUCCESS) {
-        return false;
-    }
-    
-    if (RegQueryValueExA(hKey, valueName.c_str(), NULL, &type, (BYTE*)&value, &dataSize) != ERROR_SUCCESS || type != REG_DWORD) {
-        RegCloseKey(hKey);
-        return false;
-    }
-    
+    result = RegQueryValueExA(hKey, valueName.c_str(), NULL, &type, reinterpret_cast<LPBYTE>(&value), &dataSize);
     RegCloseKey(hKey);
-    return true;
-}
-
-bool setRegistryValueString(HKEY root, const std::string& subKey, const std::string& valueName, const std::string& value) {
-    HKEY hKey;
     
-    // Create the key if it doesn't exist
-    if (RegCreateKeyExA(root, subKey.c_str(), 0, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, NULL) != ERROR_SUCCESS) {
-        return false;
-    }
-    
-    // Set the value
-    DWORD dataSize = static_cast<DWORD>(value.size() + 1); // Include null terminator
-    if (RegSetValueExA(hKey, valueName.c_str(), 0, REG_SZ, (BYTE*)value.c_str(), dataSize) != ERROR_SUCCESS) {
-        RegCloseKey(hKey);
-        return false;
-    }
-    
-    RegCloseKey(hKey);
-    return true;
-}
-
-bool setRegistryValueDword(HKEY root, const std::string& subKey, const std::string& valueName, DWORD value) {
-    HKEY hKey;
-    
-    // Create the key if it doesn't exist
-    if (RegCreateKeyExA(root, subKey.c_str(), 0, NULL, REG_OPTION_NON_VOLATILE, KEY_WRITE, NULL, &hKey, NULL) != ERROR_SUCCESS) {
-        return false;
-    }
-    
-    // Set the value
-    if (RegSetValueExA(hKey, valueName.c_str(), 0, REG_DWORD, (BYTE*)&value, sizeof(DWORD)) != ERROR_SUCCESS) {
-        RegCloseKey(hKey);
-        return false;
-    }
-    
-    RegCloseKey(hKey);
-    return true;
-}
-
-// Check if Voicemeeter is installed
-bool isVoicemeeterInstalled() {
-    std::string uninstallString;
-    
-    // Try the regular path first
-    if (getRegistryValueString(HKEY_LOCAL_MACHINE, 
-                             "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\VB:Voicemeeter {17359A74-1236-5467}", 
-                             "UninstallString", 
-                             uninstallString)) {
-        return true;
-    }
-    
-    // Try the 32-bit path on 64-bit Windows
-    if (getRegistryValueString(HKEY_LOCAL_MACHINE, 
-                             "SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\VB:Voicemeeter {17359A74-1236-5467}", 
-                             "UninstallString", 
-                             uninstallString)) {
-        return true;
-    }
-    
-    return false;
-}
-
-// Get Voicemeeter installation path
-std::string getVoicemeeterInstallPath() {
-    std::string uninstallString;
-    
-    // Try the regular path first
-    if (!getRegistryValueString(HKEY_LOCAL_MACHINE, 
-                              "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\VB:Voicemeeter {17359A74-1236-5467}", 
-                              "UninstallString", 
-                              uninstallString)) {
-        // Try the 32-bit path on 64-bit Windows
-        if (!getRegistryValueString(HKEY_LOCAL_MACHINE, 
-                                  "SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\VB:Voicemeeter {17359A74-1236-5467}", 
-                                  "UninstallString", 
-                                  uninstallString)) {
-            return "";
-        }
-    }
-    
-    // Extract the installation path from the uninstall string
-    // The uninstall string is something like: "C:\Program Files\VB\Voicemeeter\uninstall.exe"
-    size_t pos = uninstallString.find_last_of("\\");
-    if (pos != std::string::npos) {
-        return uninstallString.substr(0, pos + 1);
-    }
-    
-    return "";
+    return (result == ERROR_SUCCESS && type == REG_DWORD);
 }
 
 #endif // _WIN32
