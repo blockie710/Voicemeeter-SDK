@@ -19,7 +19,7 @@ set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 
 # Set Windows-specific flags
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -static-libgcc")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static-libgcc -static-libstdc++")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static-libgcc -static-libstdc++ -std=c++17")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static -static-libgcc -static-libstdc++")
 
 # Add Windows libraries needed for GUI applications
