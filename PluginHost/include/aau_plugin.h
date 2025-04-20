@@ -17,7 +17,8 @@
 
 // Forward declarations for AudioUnit types
 // These are placeholders since AAU is macOS specific
-typedef struct AudioUnit* AudioUnit;
+struct AudioUnitStruct;
+typedef AudioUnitStruct* AudioUnit;
 typedef struct AudioComponentDescription AudioComponentDescription;
 typedef struct AUParameterInfo AUParameterInfo;
 
