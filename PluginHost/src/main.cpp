@@ -123,12 +123,6 @@ void displayVoicemeeterInfo();
 CommandLineArgs parseCommandLine(int argc, char** argv);
 void displayHelp();
 
-// String utility functions for C++17 compatibility (ends_with is C++20)
-bool string_ends_with(const std::string& str, const std::string& suffix) {
-    if (str.length() < suffix.length()) return false;
-    return str.compare(str.length() - suffix.length(), suffix.length(), suffix) == 0;
-}
-
 #ifdef _WIN32
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 #endif
