@@ -71,10 +71,23 @@ struct PluginChainItem {
 
 // Utility function to check if a string ends with a given suffix
 bool string_ends_with(const std::string& str, const std::string& suffix) {
-    if (str.length() < suffix.length()) {
-        return false;
-    }
-    return str.compare(str.length() - suffix.length(), suffix.length(), suffix) == 0;
+    return str.size() >= suffix.size() && 
+            str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
+// Improved plugin path helper
+std::string getHomeDirectory() {
+    #ifdef _WIN32
+        const char* homeDrive = getenv("HOMEDRIVE");
+        const char* homePath = getenv("HOMEPATH");
+        if (homeDrive && homePath) {
+            return std::string(homeDrive) + std::string(homePath);
+        }
+        return "C:\\Users\\Default";
+    #else
+        const char* home = getenv("HOME");
+        return home ? home : "/home";
+    #endif
 }
 
 // Defines for window creation
@@ -112,6 +125,8 @@ int g_selectedParameterIndex = -1;
 std::unique_ptr<VoicemeeterIntegration::VoicemeeterClient> g_voicemeeterClient;
 std::vector<PluginChainItem> g_pluginChain;
 std::map<std::string, std::shared_ptr<PluginInstance>> g_loadedPlugins;
+std::vector<PluginDescription> g_pluginDescriptions; // Store plugin descriptions globally
+std::mutex g_audioMutex; // Mutex for thread safety
 bool g_running = true;
 bool g_bypassAllPlugins = false;
 
@@ -189,6 +204,89 @@ void displayHelp() {
     std::cout << "  --lua=<path>       Add LUA script path\n";
     std::cout << "  --reaper=<path>    Add REAPER plugin path\n";
     std::cout << "  --help             Display this help message\n";
+}
+
+// Helper to convert PluginFormat to string
+std::string getFormatName(PluginFormat format) {
+    switch (format) {
+        case PluginFormat::VST3: return "VST3";
+        case PluginFormat::AAX: return "AAX";
+        case PluginFormat::AAU: return "Audio Unit";
+        case PluginFormat::ARA: return "ARA";
+        case PluginFormat::LUA: return "Lua Script";
+        case PluginFormat::REAPER: return "REAPER/JSFX";
+        default: return "Unknown";
+    }
+}
+
+// Scan for plugins in a directory
+bool scanForPlugins(const std::string& directory, PluginFormat format) {
+    std::cout << "Scanning for " << getFormatName(format) << " plugins in: " << directory << std::endl;
+    
+    // Check if directory exists
+    std::error_code ec;
+    if (!std::filesystem::exists(directory, ec) || ec) {
+        std::cout << "  Directory does not exist or is not accessible" << std::endl;
+        return false;
+    }
+
+    try {
+        // Create appropriate scanner
+        auto scanner = createPluginScanner(format);
+        if (!scanner) {
+            std::cout << "  Plugin format not supported on this platform" << std::endl;
+            return false;
+        }
+        
+        // Scan for plugins
+        std::vector<PluginDescription> plugins = scanner->scanDirectory(directory);
+        std::cout << "  Found " << plugins.size() << " plugins" << std::endl;
+        
+        // Save plugin info for later use
+        for (const auto& desc : plugins) {
+            std::cout << "  - " << desc.name << " (" << desc.path << ")" << std::endl;
+            // Store plugin descriptions in a global cache for later use
+            g_pluginDescriptions.push_back(desc);
+        }
+        
+        return !plugins.empty();
+    } catch (const std::exception& e) {
+        std::cerr << "  Error scanning directory: " << e.what() << std::endl;
+        return false;
+    }
+}
+
+// Improved plugin loading function
+bool loadPlugin(const std::string& path, PluginFormat format) {
+    std::cout << "Loading " << getFormatName(format) << " plugin: " << path << std::endl;
+    
+    try {
+        // Create scanner for the format
+        auto scanner = createPluginScanner(format);
+        if (!scanner) {
+            std::cerr << "Plugin format not supported on this platform" << std::endl;
+            return false;
+        }
+        
+        // Load the plugin
+        auto plugin = scanner->loadPlugin(path, format);
+        if (!plugin) {
+            std::cerr << "Failed to load plugin" << std::endl;
+            return false;
+        }
+        
+        // Prepare plugin for audio processing
+        plugin->initialize();
+        plugin->prepareToPlay(48000.0, 1024); // Default to standard values
+        
+        // Success, add to the chain
+        addPluginToChain(plugin);
+        
+        return true;
+    } catch (const std::exception& e) {
+        std::cerr << "Error loading plugin: " << e.what() << std::endl;
+        return false;
+    }
 }
 
 #ifdef _WIN32
@@ -580,7 +678,7 @@ int main(int argc, char** argv) {
         #else
         scanForPlugins("/usr/lib/vst3", PluginFormat::VST3);
         scanForPlugins("/usr/local/lib/vst3", PluginFormat::VST3);
-        scanForPlugins(std::string(getenv("HOME")) + "/.vst3", PluginFormat::VST3);
+        scanForPlugins(getHomeDirectory() + "/.vst3", PluginFormat::VST3);
         #endif
 
         // Additional plugin directories from command line
@@ -647,32 +745,37 @@ int main(int argc, char** argv) {
 
 // Initialize application components
 bool initializeApplication() {
-    // Create Voicemeeter client
+    // Initialize Voicemeeter integration
     g_voicemeeterClient = std::make_unique<VoicemeeterIntegration::VoicemeeterClient>();
 
-    // Initialize Voicemeeter connection
-    if (!g_voicemeeterClient->initialize()) {
-        std::cerr << "Failed to connect to Voicemeeter. Is it running?" << std::endl;
+    if (!g_voicemeeterClient->isVoicemeeterInstalled()) {
+        std::cerr << "Voicemeeter is not installed. Please install Voicemeeter first." << std::endl;
+        return false;
+    }
 
-        // Try to launch Voicemeeter if not running
-        std::cout << "Attempting to launch Voicemeeter..." << std::endl;
-        if (!g_voicemeeterClient->launchVoicemeeter(VoicemeeterIntegration::VoicemeeterType::POTATO_X64)) {
+    // Try to connect
+    if (!g_voicemeeterClient->initialize()) {
+        // Voicemeeter might not be running, try to launch it
+        std::cout << "Voicemeeter not running, attempting to launch..." << std::endl;
+        if (!g_voicemeeterClient->launchVoicemeeter()) {
             std::cerr << "Failed to launch Voicemeeter." << std::endl;
             return false;
         }
-
-        // Wait for Voicemeeter to start
+        
+        // Give some time for Voicemeeter to start up
         std::this_thread::sleep_for(std::chrono::seconds(2));
-
-        // Try to initialize again
+        
         if (!g_voicemeeterClient->initialize()) {
             std::cerr << "Failed to connect to Voicemeeter after launching." << std::endl;
             return false;
         }
     }
 
-    // Register audio callback
-    g_voicemeeterClient->registerAudioCallback(processAudio);
+    // Register audio callback with thread safety
+    g_voicemeeterClient->registerAudioCallback([](float** inputs, float** outputs, int numInputs, int numOutputs, int numSamples) {
+        std::lock_guard<std::mutex> lock(g_audioMutex);
+        processAudio(inputs, outputs, numInputs, numOutputs, numSamples);
+    });
 
     // Initialize UI (minimal implementation for now)
     #ifdef _WIN32
@@ -752,119 +855,75 @@ void shutdownApplication() {
     // Clean up plugin chain
     g_pluginChain.clear();
     g_loadedPlugins.clear();
+    g_pluginDescriptions.clear();
 
     std::cout << "Application shutdown complete." << std::endl;
 }
 
-// Audio processing callback
+// Improved audio processing function
 void processAudio(float** inputs, float** outputs, int numInputs, int numOutputs, int numSamples) {
-    // If bypassing all plugins, just copy inputs to outputs
-    if (g_bypassAllPlugins || g_pluginChain.empty()) {
-        for (int i = 0; i < numOutputs && i < numInputs; ++i) {
-            if (inputs[i] && outputs[i]) {
-                std::copy(inputs[i], inputs[i] + numSamples, outputs[i]);
+    // Skip processing if no plugins or all bypassed
+    if (g_pluginChain.empty() || g_bypassAllPlugins) {
+        // Pass through audio
+        for (int ch = 0; ch < std::min(numInputs, numOutputs); ch++) {
+            if (inputs[ch] && outputs[ch]) {
+                std::memcpy(outputs[ch], inputs[ch], numSamples * sizeof(float));
             }
         }
         return;
     }
-
-    // Create temporary buffers for the plugin chain
-    std::vector<float> tempBuffers[64]; // Max 64 channels
-    for (int i = 0; i < numOutputs; i++) {
-        tempBuffers[i].resize(numSamples);
-    }
-
-    // Copy inputs to first temporary buffer
-    for (int i = 0; i < numInputs; i++) {
-        if (inputs[i]) {
-            std::copy(inputs[i], inputs[i] + numSamples, tempBuffers[i].data());
+    
+    // Create temporary buffers for chaining
+    std::vector<float*> tempInputs(numInputs);
+    std::vector<float*> tempOutputs(numOutputs);
+    
+    for (int ch = 0; ch < numOutputs; ch++) {
+        tempOutputs[ch] = new float[numSamples];
+        // Initialize with input if available or zero if not
+        if (ch < numInputs && inputs[ch]) {
+            std::memcpy(tempOutputs[ch], inputs[ch], numSamples * sizeof(float));
+        } else {
+            std::memset(tempOutputs[ch], 0, numSamples * sizeof(float));
         }
     }
-
-    // Process through plugin chain
-    for (auto& pluginItem : g_pluginChain) {
-        if (!pluginItem.bypass) {
-            // Setup pointers for plugin processing
-            float* pluginInputs[64];
-            float* pluginOutputs[64];
-
-            for (int i = 0; i < numInputs; i++) {
-                pluginInputs[i] = tempBuffers[i].data();
+    
+    // Process through each plugin in chain
+    for (auto& item : g_pluginChain) {
+        // Skip bypassed plugins
+        if (item.bypass) {/ Create scanner for the specified format
+            continue;    auto scanner = createPluginScanner(format);
+        }
+                std::cerr << "Failed to create plugin scanner for format: " << static_cast<int>(format) << std::endl;
+        // Swap buffers - output from previous becomes input to current
+        for (int ch = 0; ch < numOutputs; ch++) {
+            tempInputs[ch] = tempOutputs[ch];
+        }plugin
+           auto plugin = scanner->loadPlugin(path);
+        try {    if (!plugin) {
+            item.plugin->process(tempInputs.data(), tempOutputs.data(), numInputs, numOutputs, numSamples);ugin: " << path << std::endl;
+        } catch (const std::exception& e) {
+            std::cerr << "Error processing plugin " << item.name << ": " << e.what() << std::endl;
+            // On error, just pass through
+            for (int ch = 0; ch < numOutputs; ch++) {    std::cout << "Loaded plugin: " << plugin->getName() << std::endl;
+                if (ch < numInputs) {
+                    std::memcpy(tempOutputs[ch], tempInputs[ch], numSamples * sizeof(float));
+                }    addPluginToChain(plugin);
             }
-
-            for (int i = 0; i < numOutputs; i++) {
-                pluginOutputs[i] = tempBuffers[i].data();
-            }
-
-            // Process through plugin
-            pluginItem.plugin->process(pluginInputs, pluginOutputs, numInputs, numOutputs, numSamples);
         }
-    }
-
-    // Copy final result to outputs
-    for (int i = 0; i < numOutputs; i++) {
-        if (outputs[i]) {
-            std::copy(tempBuffers[i].data(), tempBuffers[i].data() + numSamples, outputs[i]);
+    }}
+    
+    // Copy final result to outputo the processing chain
+    for (int ch = 0; ch < numOutputs; ch++) {shared_ptr<PluginInstance> plugin) {
+        if (outputs[ch] && tempOutputs[ch]) {or the plugin
+            std::memcpy(outputs[ch], tempOutputs[ch], numSamples * sizeof(float));luginChainItem item(plugin);
         }
+    }   // Add to the chain
+        g_pluginChain.push_back(std::move(item));
+    // Clean up
+    for (int ch = 0; ch < numOutputs; ch++) {ins map
+        delete[] tempOutputs[ch];
     }
-}
-
-// Scan for plugins in a directory
-bool scanForPlugins(const std::string& directory, PluginFormat format) {
-    std::cout << "Scanning for " << static_cast<int>(format) << " plugins in: " << directory << std::endl;
-
-    // Check if directory exists
-    if (!std::filesystem::exists(directory)) {
-        std::cerr << "Directory does not exist: " << directory << std::endl;
-        return false;
-    }
-
-    // Create scanner for the specified format
-    auto scanner = createPluginScanner(format);
-    if (!scanner) {
-        std::cerr << "Failed to create plugin scanner for format: " << static_cast<int>(format) << std::endl;
-        return false;
-    }
-
-    // Scan for plugins
-    auto foundPlugins = scanner->scanDirectory(directory);
-
-    std::cout << "Found " << foundPlugins.size() << " plugins." << std::endl;
-
-    // Store plugins in the registry
-    for (auto& pluginDesc : foundPlugins) {
-        std::cout << "  - " << pluginDesc.name << " (" << pluginDesc.path << ")" << std::endl;
-        g_loadedPlugins[pluginDesc.uniqueId] = nullptr; // Will be loaded on demand
-    }
-
-    return true;
-}
-
-// Load a plugin by path and format
-bool loadPlugin(const std::string& path, PluginFormat format) {
-    std::cout << "Loading plugin: " << path << std::endl;
-
-    // Create scanner for the specified format
-    auto scanner = createPluginScanner(format);
-    if (!scanner) {
-        std::cerr << "Failed to create plugin scanner for format: " << static_cast<int>(format) << std::endl;
-        return false;
-    }
-
-    // Load the plugin
-    auto plugin = scanner->loadPlugin(path);
-    if (!plugin) {
-        std::cerr << "Failed to load plugin: " << path << std::endl;
-        return false;
-    }
-
-    std::cout << "Loaded plugin: " << plugin->getName() << std::endl;
-
-    // Add to plugin chain
-    addPluginToChain(plugin);
-
-    return true;
-}
+}    // Update UI
 
 // Add a plugin to the processing chain
 void addPluginToChain(std::shared_ptr<PluginInstance> plugin) {
@@ -872,96 +931,108 @@ void addPluginToChain(std::shared_ptr<PluginInstance> plugin) {
     PluginChainItem item(plugin);
 
     // Add to the chain
-    g_pluginChain.push_back(std::move(item));
-
-    // Store in loaded plugins map
+    g_pluginChain.push_back(std::move(item));order the plugin chain
+oid reorderPluginChain() {
+    // Store in loaded plugins map    // No implementation needed - handled by UI actions
     g_loadedPlugins[plugin->getUniqueId()] = plugin;
 
-    // Update UI
-    #ifdef _WIN32
-    if (g_hwndPluginList) {
+    // Update UI a plugin in the chain
+    #ifdef _WIN32::string& uniqueId, bool enable) {
+    if (g_hwndPluginList) {luginChain) {
         displayPluginList();
-    }
+    }            item.bypass = !enable;
     #endif
 }
 
 // Reorder the plugin chain
 void reorderPluginChain() {
-    // No implementation needed - handled by UI actions
+    // No implementation needed - handled by UI actionse list of plugins in the UI
 }
-
-// Enable/disable a plugin in the chain
-void enablePlugin(const std::string& uniqueId, bool enable) {
-    for (auto& item : g_pluginChain) {
+f _WIN32
+// Enable/disable a plugin in the chainf (g_hwndPluginList) {
+void enablePlugin(const std::string& uniqueId, bool enable) {/ Clear the list
+    for (auto& item : g_pluginChain) {NT, 0, 0);
         if (item.uniqueId == uniqueId) {
-            item.bypass = !enable;
-            break;
+            item.bypass = !enable;h plugin to the list
+            break;n) {
         }
-    }
-}
-
-// Display the list of plugins in the UI
+    }s) {
+}sed)";
+   }
+// Display the list of plugins in the UIluginList, LB_ADDSTRING, 0, (LPARAM)displayName.c_str());
 void displayPluginList() {
     #ifdef _WIN32
     if (g_hwndPluginList) {
-        // Clear the list
-        SendMessage(g_hwndPluginList, LB_RESETCONTENT, 0, 0);
-
-        // Add each plugin to the list
-        for (const auto& item : g_pluginChain) {
+        // Clear the listsole-based list for non-Windows platforms
+        SendMessage(g_hwndPluginList, LB_RESETCONTENT, 0, 0);   std::cout << "Plugin Chain:" << std::endl;
+    int index = 0;
+        // Add each plugin to the listinChain) {
+        for (const auto& item : g_pluginChain) {: " << item.name;
             std::string displayName = item.name;
             if (item.bypass) {
                 displayName += " (Bypassed)";
-            }
-            SendMessage(g_hwndPluginList, LB_ADDSTRING, 0, (LPARAM)displayName.c_str());
+            }   std::cout << std::endl;
+            SendMessage(g_hwndPluginList, LB_ADDSTRING, 0, (LPARAM)displayName.c_str());        index++;
         }
-    }
-    #else
+    }l;
+    #else    #endif
     // Console-based list for non-Windows platforms
     std::cout << "Plugin Chain:" << std::endl;
     int index = 0;
-    for (const auto& item : g_pluginChain) {
+    for (const auto& item : g_pluginChain) {eeterInfo() {
         std::cout << index << ": " << item.name;
-        if (item.bypass) {
+        if (item.bypass) {r client not initialized." << std::endl;
             std::cout << " (Bypassed)";
         }
         std::cout << std::endl;
-        index++;
+        index++;voicemeeterClient->getVoicemeeterType();
     }
     std::cout << std::endl;
-    #endif
-}
-
-// Display Voicemeeter information
-void displayVoicemeeterInfo() {
+    #endif{
+}cemeeterIntegration::VoicemeeterType::STANDARD:
+;
+// Display Voicemeeter information       break;
+void displayVoicemeeterInfo() {        case VoicemeeterIntegration::VoicemeeterType::BANANA:
     if (!g_voicemeeterClient) {
         std::cout << "Voicemeeter client not initialized." << std::endl;
-        return;
+        return;meeterType::POTATO:
     }
 
-    auto type = g_voicemeeterClient->getVoicemeeterType();
+    auto type = g_voicemeeterClient->getVoicemeeterType();        case VoicemeeterIntegration::VoicemeeterType::POTATO_X64:
     std::string typeName;
 
     switch (type) {
         case VoicemeeterIntegration::VoicemeeterType::STANDARD:
             typeName = "Standard";
             break;
-        case VoicemeeterIntegration::VoicemeeterType::BANANA:
-            typeName = "Banana";
-            break;
-        case VoicemeeterIntegration::VoicemeeterType::POTATO:
-            typeName = "Potato";
-            break;
-        case VoicemeeterIntegration::VoicemeeterType::POTATO_X64:
-            typeName = "Potato x64";
-            break;
-        default:
-            typeName = "Unknown";
-    }
+        case VoicemeeterIntegration::VoicemeeterType::BANANA:cemeeterVersion();
+            typeName = "Banana";   int v1 = (version & 0xFF000000) >> 24;
 
-    long version = g_voicemeeterClient->getVoicemeeterVersion();
-    int v1 = (version & 0xFF000000) >> 24;
-    int v2 = (version & 0x00FF0000) >> 16;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+}    std::cout << "----------------------\n\n";    std::cout << "Buses: " << g_voicemeeterClient->getNumBuses() << "\n";    std::cout << "Strips: " << g_voicemeeterClient->getNumStrips() << "\n";    std::cout << "Version: " << v1 << "." << v2 << "." << v3 << "." << v4 << "\n";    std::cout << "Type: " << typeName << "\n";    std::cout << "----------------------\n";    std::cout << "\nVoicemeeter Information:\n";    int v4 = version & 0x000000FF;    int v3 = (version & 0x0000FF00) >> 8;    int v2 = (version & 0x00FF0000) >> 16;    int v1 = (version & 0xFF000000) >> 24;    long version = g_voicemeeterClient->getVoicemeeterVersion();    }            typeName = "Unknown";        default:            break;            typeName = "Potato x64";        case VoicemeeterIntegration::VoicemeeterType::POTATO_X64:            break;            typeName = "Potato";        case VoicemeeterIntegration::VoicemeeterType::POTATO:            break;    int v2 = (version & 0x00FF0000) >> 16;
     int v3 = (version & 0x0000FF00) >> 8;
     int v4 = version & 0x000000FF;
 

@@ -6,6 +6,7 @@
 #include <cmath>
 
 // Include the plugin host headers
+// Fix the include path
 #include "../PluginHost/src/VMPluginHost.h"
 
 #ifdef _WIN32

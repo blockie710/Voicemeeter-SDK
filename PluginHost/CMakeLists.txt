@@ -22,6 +22,7 @@ set(SOURCES
     src/voicemeeter_integration.cpp
     src/vst3_plugin.cpp
     src/aax_plugin.cpp
+    src/VMPluginHost.cpp
 )
 
 # Platform-specific sources and libraries
