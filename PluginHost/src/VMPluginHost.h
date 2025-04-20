@@ -3,6 +3,7 @@
 
 #include <string>
 #include <memory>
+#include <vector>
 #include "../include/plugin_interface.h"
 
 /**
@@ -34,11 +35,22 @@ public:
     bool GetParameterProperties(int index, float* min, float* max, float* defaultVal);
     
     // Audio processing
-    void ProcessAudio(float* inL, float* inR, float* outL, float* outR, int numSamples, float sampleRate);
+    void ProcessAudio(float* inL, float* inR, float* outL, float* outR, int numSamples, float sampleRate = 48000.0f);
+    
+    // Editor
+    bool HasEditor() const;
+    bool ShowEditor(void* parentWindow);
+    void HideEditor();
+    
+    // For batch processing multiple plugins
+    bool AddPlugin(const std::string& path);
+    void ClearPlugins();
+    int GetPluginCount() const;
     
 private:
     std::shared_ptr<PluginInstance> m_plugin;
-    PluginFormat detectFormat(const std::string& path);
+    std::vector<std::shared_ptr<PluginInstance>> m_pluginChain;
+    PluginFormat DetectFormat(const std::string& path);
 };
 
 #endif // VM_PLUGIN_HOST_H

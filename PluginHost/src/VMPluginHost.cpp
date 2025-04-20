@@ -2,6 +2,7 @@
 #include <filesystem>
 #include <iostream>
 #include <algorithm>
+#include <stdexcept>
 
 VMPluginHost::VMPluginHost() : m_plugin(nullptr) {
     // Initialize logging
@@ -10,39 +11,34 @@ VMPluginHost::VMPluginHost() : m_plugin(nullptr) {
 
 VMPluginHost::~VMPluginHost() {
     UnloadPlugin();
+    ClearPlugins();
 }
 
 bool VMPluginHost::LoadPlugin(const std::string& path) {
     try {
-        // Detect plugin format from file extension
-        PluginFormat format = detectFormat(path);
+        // Detect plugin format
+        PluginFormat format = DetectFormat(path);
         if (format == PluginFormat::UNKNOWN) {
-            std::cerr << "Unknown plugin format: " << path << std::endl;
+            std::cerr << "Unsupported plugin format: " << path << std::endl;
             return false;
         }
-        
-        // Create scanner for the format
+
+        // Create scanner for this format
         auto scanner = createPluginScanner(format);
         if (!scanner) {
-            std::cerr << "Plugin format not supported on this platform" << std::endl;
+            std::cerr << "Failed to create plugin scanner for format" << std::endl;
             return false;
         }
-        
-        // Load the plugin
-        m_plugin = scanner->loadPlugin(path, format);
+
+        // Load plugin
+        m_plugin = scanner->loadPlugin(path);
         if (!m_plugin) {
             std::cerr << "Failed to load plugin: " << path << std::endl;
             return false;
         }
-        
-        // Initialize plugin
-        if (!m_plugin->initialize()) {
-            std::cerr << "Failed to initialize plugin: " << path << std::endl;
-            m_plugin = nullptr;
-            return false;
-        }
-        
+
         // Prepare for audio processing with default values
+        m_plugin->initialize();
         m_plugin->prepareToPlay(48000.0, 1024);
         return true;
     }
@@ -55,6 +51,10 @@ bool VMPluginHost::LoadPlugin(const std::string& path) {
 void VMPluginHost::UnloadPlugin() {
     if (m_plugin) {
         try {
+            // Clean up editor if open
+            if (m_plugin->hasEditor()) {
+                m_plugin->hideEditor();
+            }
             m_plugin->suspend();
         }
         catch (...) {
@@ -103,79 +103,126 @@ bool VMPluginHost::SetParameter(int index, float value) {
 
 std::string VMPluginHost::GetParameterDisplay(int index) const {
     if (m_plugin && index >= 0 && index < m_plugin->getParameterCount()) {
-        auto param = m_plugin->getParameter(index);
-        // Use string representation if available, otherwise just use the value
-        return param.label.empty() ? std::to_string(param.currentValue) : param.label;
+        return m_plugin->getParameter(index).displayText;
     }
     return "";
 }
 
 bool VMPluginHost::GetParameterProperties(int index, float* min, float* max, float* defaultVal) {
-    if (m_plugin && index >= 0 && index < m_plugin->getParameterCount()) {
-        auto param = m_plugin->getParameter(index);
-        *min = param.minValue;
-        *max = param.maxValue;
-        *defaultVal = param.defaultValue;
-        return true;
+    if (!m_plugin || index < 0 || index >= m_plugin->getParameterCount()) {
+        return false;
     }
-    return false;
+    
+    auto param = m_plugin->getParameter(index);
+    if (min) *min = param.minValue;
+    if (max) *max = param.maxValue;
+    if (defaultVal) *defaultVal = param.defaultValue;
+    return true;
 }
 
 void VMPluginHost::ProcessAudio(float* inL, float* inR, float* outL, float* outR, int numSamples, float sampleRate) {
     if (!m_plugin) {
-        // Pass through if no plugin loaded
-        if (inL && outL) std::copy(inL, inL + numSamples, outL);
-        if (inR && outR) std::copy(inR, inR + numSamples, outR);
+        // No plugin loaded, copy input to output
+        std::memcpy(outL, inL, numSamples * sizeof(float));
+        std::memcpy(outR, inR, numSamples * sizeof(float));
         return;
     }
-    
+
+    // Process with single plugin
+    float* inputs[2] = { inL, inR };
+    float* outputs[2] = { outL, outR };
     try {
-        // Set up input and output arrays
-        float* inputs[2] = { inL, inR };
-        float* outputs[2] = { outL, outR };
-        
-        // Update sample rate if different
-        static double currentSampleRate = 48000.0;
-        if (std::abs(currentSampleRate - sampleRate) > 0.01) {
-            m_plugin->prepareToPlay(sampleRate, numSamples);
-            currentSampleRate = sampleRate;
-        }
-        
-        // Process audio
         m_plugin->process(inputs, outputs, 2, 2, numSamples);
     }
     catch (const std::exception& e) {
-        std::cerr << "Error processing audio: " << e.what() << std::endl;
+        std::cerr << "Error during audio processing: " << e.what() << std::endl;
         // On error, pass through
-        if (inL && outL) std::copy(inL, inL + numSamples, outL);
-        if (inR && outR) std::copy(inR, inR + numSamples, outR);
+        std::memcpy(outL, inL, numSamples * sizeof(float));
+        std::memcpy(outR, inR, numSamples * sizeof(float));
     }
 }
 
-PluginFormat VMPluginHost::detectFormat(const std::string& path) {
+bool VMPluginHost::HasEditor() const {
+    return m_plugin ? m_plugin->hasEditor() : false;
+}
+
+bool VMPluginHost::ShowEditor(void* parentWindow) {
+    return m_plugin ? m_plugin->showEditor(parentWindow) : false;
+}
+
+void VMPluginHost::HideEditor() {
+    if (m_plugin) {
+        m_plugin->hideEditor();
+    }
+}
+
+bool VMPluginHost::AddPlugin(const std::string& path) {
+    try {
+        // Detect plugin format
+        PluginFormat format = DetectFormat(path);
+        if (format == PluginFormat::UNKNOWN) {
+            std::cerr << "Unsupported plugin format: " << path << std::endl;
+            return false;
+        }
+
+        // Create scanner for this format
+        auto scanner = createPluginScanner(format);
+        if (!scanner) {
+            std::cerr << "Failed to create plugin scanner for format" << std::endl;
+            return false;
+        }
+
+        // Load plugin
+        auto plugin = scanner->loadPlugin(path);
+        if (!plugin) {
+            std::cerr << "Failed to load plugin: " << path << std::endl;
+            return false;
+        }
+
+        // Prepare for audio processing with default values
+        plugin->initialize();
+        plugin->prepareToPlay(48000.0, 1024);
+        
+        // Add to chain
+        m_pluginChain.push_back(plugin);
+        return true;
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Error adding plugin: " << e.what() << std::endl;
+        return false;
+    }
+}
+
+void VMPluginHost::ClearPlugins() {
+    for (auto& plugin : m_pluginChain) {
+        try {
+            if (plugin->hasEditor()) {
+                plugin->hideEditor();
+            }
+            plugin->suspend();
+        }
+        catch (...) {
+            // Ignore errors during shutdown
+        }
+    }
+    m_pluginChain.clear();
+}
+
+int VMPluginHost::GetPluginCount() const {
+    return static_cast<int>(m_pluginChain.size());
+}
+
+PluginFormat VMPluginHost::DetectFormat(const std::string& path) {
     std::filesystem::path filePath(path);
     std::string extension = filePath.extension().string();
     std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
     
     if (extension == ".vst3") return PluginFormat::VST3;
-    if (extension == ".aaxplugin" || extension == ".aax") return PluginFormat::AAX;
-    if (extension == ".component") return PluginFormat::AAU;
+    if (extension == ".aaxplugin") return PluginFormat::AAX;
+    if (extension == ".component" || extension == ".appex") return PluginFormat::AAU;
+    if (extension == ".araplug") return PluginFormat::ARA;
     if (extension == ".lua") return PluginFormat::LUA;
     if (extension == ".jsfx") return PluginFormat::REAPER;
-    
-    // Special case for ARA - may have various extensions
-    if (extension == ".dll" || extension == ".so" || extension == ".dylib") {
-        // Check for ARA signature if possible
-        // Basic assumption based on filename patterns
-        std::string filename = filePath.filename().string();
-        if (filename.find("ARA") != std::string::npos || 
-            filename.find("ara") != std::string::npos) {
-            return PluginFormat::ARA;
-        }
-        
-        // Could be any format, try VST3 as default for DLLs
-        return PluginFormat::VST3;
-    }
     
     return PluginFormat::UNKNOWN;
 }

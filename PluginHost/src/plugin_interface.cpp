@@ -12,6 +12,7 @@
 #include <fstream>
 #include <chrono>
 #include <ctime>
+#include <filesystem>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -20,51 +21,119 @@
 
 // Global logger for plugin operations
 class PluginLogger {
-private:
-    std::ofstream m_logFile;
-    bool m_initialized = false;
-    
 public:
-    enum class Level { Info, Warning, Error, Debug };
+    enum class Level {
+        Debug,
+        Info,
+        Warning,
+        Error,
+        Fatal
+    };
     
-    bool initialize(const std::string& path) {
-        m_logFile.open(path, std::ios::app);
-        m_initialized = m_logFile.is_open();
-        if (m_initialized) {
-            log(Level::Info, "PluginLogger initialized");
+    PluginLogger() : m_logFile(nullptr), m_logToConsole(true), m_logLevel(Level::Info) {}
+    
+    ~PluginLogger() {
+        if (m_logFile) {
+            fclose(m_logFile);
         }
-        return m_initialized;
+    }
+    
+    bool initialize(const std::string& logDir, Level level = Level::Info) {
+        m_logLevel = level;
+        
+        // Create log directory if it doesn't exist
+        std::filesystem::path dirPath(logDir);
+        try {
+            if (!std::filesystem::exists(dirPath)) {
+                std::filesystem::create_directories(dirPath);
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "Failed to create log directory: " << e.what() << std::endl;
+            return false;
+        }
+        
+        // Get current time for log filename
+        auto now = std::chrono::system_clock::now();
+        auto time = std::chrono::system_clock::to_time_t(now);
+        std::tm tm;
+#ifdef _WIN32
+        localtime_s(&tm, &time);
+#else
+        localtime_r(&time, &tm);
+#endif
+        
+        char timeStr[100];
+        std::strftime(timeStr, sizeof(timeStr), "%Y%m%d_%H%M%S", &tm);
+        
+        std::string logFilePath = (dirPath / ("plugin_host_" + std::string(timeStr) + ".log")).string();
+        
+        m_logFile = fopen(logFilePath.c_str(), "w");
+        if (!m_logFile) {
+            std::cerr << "Failed to open log file: " << logFilePath << std::endl;
+            return false;
+        }
+        
+        log(Level::Info, "=== Plugin Host Log Started ===");
+        log(Level::Info, "Log level: " + levelToString(m_logLevel));
+        return true;
     }
     
     void log(Level level, const std::string& message) {
-        if (!m_initialized) return;
-        
-        auto now = std::chrono::system_clock::now();
-        auto time = std::chrono::system_clock::to_time_t(now);
-        
-        std::string levelStr;
-        switch(level) {
-            case Level::Info: levelStr = "INFO"; break;
-            case Level::Warning: levelStr = "WARNING"; break;
-            case Level::Error: levelStr = "ERROR"; break;
-            case Level::Debug: levelStr = "DEBUG"; break;
+        if (level < m_logLevel) {
+            return;
         }
         
-        m_logFile << "[" << std::ctime(&time) << "][" << levelStr << "] " << message << std::endl;
-        m_logFile.flush();
+        // Get current time
+        auto now = std::chrono::system_clock::now();
+        auto time = std::chrono::system_clock::to_time_t(now);
+        std::tm tm;
+#ifdef _WIN32
+        localtime_s(&tm, &time);
+#else
+        localtime_r(&time, &tm);
+#endif
         
-        // Also output to console for immediate feedback
-        if (level == Level::Error || level == Level::Warning) {
-            std::cerr << "[" << levelStr << "] " << message << std::endl;
-        } else {
-            std::cout << "[" << levelStr << "] " << message << std::endl;
+        char timeStr[100];
+        std::strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", &tm);
+        
+        // Format log message
+        std::string levelStr = levelToString(level);
+        std::string logMessage = std::string(timeStr) + " [" + levelStr + "] " + message;
+        
+        // Write to file
+        if (m_logFile) {
+            fprintf(m_logFile, "%s\n", logMessage.c_str());
+            fflush(m_logFile);
+        }
+        
+        // Write to console
+        if (m_logToConsole) {
+            std::cout << "[" + levelStr + "] " + message << std::endl;
         }
     }
     
-    ~PluginLogger() {
-        if (m_initialized) {
-            log(Level::Info, "PluginLogger shutting down");
-            m_logFile.close();
+    void setLogLevel(Level level) {
+        m_logLevel = level;
+        log(Level::Info, "Log level changed to: " + levelToString(level));
+    }
+    
+    void setLogToConsole(bool logToConsole) {
+        m_logToConsole = logToConsole;
+    }
+    
+private:
+    FILE* m_logFile;
+    bool m_logToConsole;
+    Level m_logLevel;
+    
+    std::string levelToString(Level level) {
+        switch (level) {
+            case Level::Debug: return "DEBUG";
+            case Level::Info: return "INFO";
+            case Level::Warning: return "WARNING";
+            case Level::Error: return "ERROR";
+            case Level::Fatal: return "FATAL";
+            default: return "UNKNOWN";
         }
     }
 };
@@ -159,21 +228,20 @@ void* getVoicemeeterProcAddress(const char* procName) {
 
 // Initialize the logger
 bool initPluginLogger(const std::string& logDir) {
-    auto now = std::chrono::system_clock::now();
-    auto time = std::chrono::system_clock::to_time_t(now);
-    struct tm timeinfo;
-    
-#ifdef _WIN32
-    localtime_s(&timeinfo, &time);
-#else
-    localtime_r(&time, &timeinfo);
-#endif
-    
-    char buffer[80];
-    strftime(buffer, sizeof(buffer), "%Y%m%d-%H%M%S", &timeinfo);
-    
-    std::string logPath = logDir + "/plugin_host_" + buffer + ".log";
-    return g_logger.initialize(logPath);
+    return g_logger.initialize(logDir);
+}
+
+// Set log level
+void setPluginLogLevel(int level) {
+    PluginLogger::Level logLevel = PluginLogger::Level::Info;
+    switch (level) {
+        case 0: logLevel = PluginLogger::Level::Debug; break;
+        case 1: logLevel = PluginLogger::Level::Info; break;
+        case 2: logLevel = PluginLogger::Level::Warning; break;
+        case 3: logLevel = PluginLogger::Level::Error; break;
+        case 4: logLevel = PluginLogger::Level::Fatal; break;
+    }
+    g_logger.setLogLevel(logLevel);
 }
 
 // Enhanced error handling with logging
@@ -209,34 +277,59 @@ std::vector<PluginFormat> PluginInstance::getSupportedFormats() {
     return formats;
 }
 
-// Create a plugin scanner for the specified format
+// Create a plugin scanner for the specified format with better error handling
 std::unique_ptr<PluginScanner> createPluginScanner(PluginFormat format) {
-    switch (format) {
-        case PluginFormat::VST3:
-            return std::make_unique<VST3PluginScanner>();
-            
-        case PluginFormat::AAX:
-            return std::make_unique<AAXPluginScanner>();
-            
-        case PluginFormat::AAU:
-            #ifdef __APPLE__
-                return std::make_unique<AAUPluginScanner>();
-            #else
-                g_logger.log(PluginLogger::Level::Warning, "AAU plugins are not supported on this platform (macOS only)");
+    try {
+        switch (format) {
+            case PluginFormat::VST3:
+                g_logger.log(PluginLogger::Level::Info, "Creating VST3 plugin scanner");
+                return std::make_unique<VST3PluginScanner>();
+                
+            case PluginFormat::AAX:
+                g_logger.log(PluginLogger::Level::Info, "Creating AAX plugin scanner");
+                return std::make_unique<AAXPluginScanner>();
+                
+            case PluginFormat::AAU:
+                #ifdef __APPLE__
+                    g_logger.log(PluginLogger::Level::Info, "Creating AAU plugin scanner");
+                    return std::make_unique<AAUPluginScanner>();
+                #else
+                    g_logger.log(PluginLogger::Level::Warning, "AAU plugins are not supported on this platform (macOS only)");
+                    return nullptr;
+                #endif
+                
+            case PluginFormat::ARA:
+                g_logger.log(PluginLogger::Level::Info, "Creating ARA plugin scanner");
+                return std::make_unique<ARAPluginScanner>();
+                
+            case PluginFormat::LUA:
+                g_logger.log(PluginLogger::Level::Info, "Creating LUA plugin scanner");
+                return std::make_unique<LuaPluginScanner>();
+                
+            case PluginFormat::REAPER:
+                g_logger.log(PluginLogger::Level::Info, "Creating REAPER plugin scanner");
+                return std::make_unique<ReaperPluginScanner>();
+                
+            default:
+                g_logger.log(PluginLogger::Level::Error, "Unknown plugin format requested");
                 return nullptr;
-            #endif
-            
-        case PluginFormat::ARA:
-            return std::make_unique<ARAPluginScanner>();
-            
-        case PluginFormat::LUA:
-            return std::make_unique<LuaPluginScanner>();
-            
-        case PluginFormat::REAPER:
-            return std::make_unique<ReaperPluginScanner>();
-            
-        default:
-            g_logger.log(PluginLogger::Level::Error, "Unknown plugin format requested");
-            return nullptr;
+        }
+    }
+    catch (const std::exception& e) {
+        g_logger.log(PluginLogger::Level::Error, "Failed to create plugin scanner: " + std::string(e.what()));
+        return nullptr;
+    }
+}
+
+// Helper function to get format name
+const char* getPluginFormatName(PluginFormat format) {
+    switch (format) {
+        case PluginFormat::VST3: return "VST3";
+        case PluginFormat::AAX: return "AAX";
+        case PluginFormat::AAU: return "Audio Unit";
+        case PluginFormat::ARA: return "ARA";
+        case PluginFormat::LUA: return "Lua Script";
+        case PluginFormat::REAPER: return "REAPER/JSFX";
+        default: return "Unknown";
     }
 }

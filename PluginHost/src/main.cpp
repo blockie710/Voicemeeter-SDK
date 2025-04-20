@@ -141,8 +141,8 @@ void processAudio(float** inputs, float** outputs, int numInputs, int numOutputs
 bool scanForPlugins(const std::string& directory, PluginFormat format);
 bool loadPlugin(const std::string& path, PluginFormat format);
 void addPluginToChain(std::shared_ptr<PluginInstance> plugin);
-void reorderPluginChain();
-void enablePlugin(const std::string& uniqueId, bool enable);
+bool removePluginFromChain(int index);
+bool movePluginInChain(int fromIndex, int toIndex);
 void displayPluginList();
 void displayVoicemeeterInfo();
 CommandLineArgs parseCommandLine(int argc, char** argv);
@@ -219,7 +219,7 @@ std::string getFormatName(PluginFormat format) {
     }
 }
 
-// Scan for plugins in a directory
+// Improved plugin scanning with progress tracking
 bool scanForPlugins(const std::string& directory, PluginFormat format) {
     std::cout << "Scanning for " << getFormatName(format) << " plugins in: " << directory << std::endl;
     
@@ -256,7 +256,7 @@ bool scanForPlugins(const std::string& directory, PluginFormat format) {
     }
 }
 
-// Improved plugin loading function
+// Improved plugin loading function with format auto-detection
 bool loadPlugin(const std::string& path, PluginFormat format) {
     std::cout << "Loading " << getFormatName(format) << " plugin: " << path << std::endl;
     
@@ -269,7 +269,7 @@ bool loadPlugin(const std::string& path, PluginFormat format) {
         }
         
         // Load the plugin
-        auto plugin = scanner->loadPlugin(path, format);
+        auto plugin = scanner->loadPlugin(path);
         if (!plugin) {
             std::cerr << "Failed to load plugin" << std::endl;
             return false;
@@ -289,352 +289,365 @@ bool loadPlugin(const std::string& path, PluginFormat format) {
     }
 }
 
-#ifdef _WIN32
-// Windows message handling procedure
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-    switch (uMsg) {
-        case WM_CREATE:
-            // Initialize UI elements when window is created
-            {
-                // Create plugin chain controls
-                g_hwndPluginList = CreateWindow(
-                    "LISTBOX",
-                    nullptr,
-                    WS_CHILD | WS_VISIBLE | LBS_NOTIFY | WS_VSCROLL | WS_BORDER,
-                    20, 60, 300, 400,
-                    hwnd,
-                    (HMENU)ID_LISTBOX_PLUGINS,
-                    GetModuleHandle(NULL),
-                    nullptr
-                );
+// Add a plugin to the processing chain
+void addPluginToChain(std::shared_ptr<PluginInstance> plugin) {
+    if (!plugin) {
+        std::cerr << "Attempted to add null plugin to chain" << std::endl;
+        return;
+    }
+    
+    // Create a chain item for the plugin
+    PluginChainItem item(plugin);
 
-                // Create buttons
-                CreateWindow(
-                    "BUTTON",
-                    "Add Plugin",
-                    WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-                    20, 470, 100, 30,
-                    hwnd,
-                    (HMENU)ID_BTN_ADD_PLUGIN,
-                    GetModuleHandle(NULL),
-                    nullptr
-                );
+    // Add to the chain
+    g_pluginChain.push_back(std::move(item));
 
-                CreateWindow(
-                    "BUTTON",
-                    "Remove",
-                    WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-                    130, 470, 80, 30,
-                    hwnd,
-                    (HMENU)ID_BTN_REMOVE_PLUGIN,
-                    GetModuleHandle(NULL),
-                    nullptr
-                );
+    // Store in loaded plugins map
+    g_loadedPlugins[plugin->getUniqueId()] = plugin;
 
-                CreateWindow(
-                    "BUTTON",
-                    "Move Up",
-                    WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-                    20, 510, 80, 30,
-                    hwnd,
-                    (HMENU)ID_BTN_MOVE_UP,
-                    GetModuleHandle(NULL),
-                    nullptr
-                );
+    // Update UI
+    #ifdef _WIN32
+    if (g_hwndPluginList) {
+        displayPluginList();
+    }
+    #endif
+}
 
-                CreateWindow(
-                    "BUTTON",
-                    "Move Down",
-                    WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-                    110, 510, 80, 30,
-                    hwnd,
-                    (HMENU)ID_BTN_MOVE_DOWN,
-                    GetModuleHandle(NULL),
-                    nullptr
-                );
+// Enhanced plugin chain management
+bool removePluginFromChain(int index) {
+    if (index < 0 || index >= g_pluginChain.size()) {
+        std::cerr << "Invalid plugin index for removal: " << index << std::endl;
+        return false;
+    }
+    
+    std::string pluginName = g_pluginChain[index].name;
+    
+    // If the plugin has an open editor, close it
+    if (g_pluginChain[index].plugin->hasEditor()) {
+        g_pluginChain[index].plugin->hideEditor();
+    }
+    
+    // Remove from chain
+    g_pluginChain.erase(g_pluginChain.begin() + index);
+    
+    std::cout << "Removed plugin from chain: " << pluginName << std::endl;
+    
+    return true;
+}
 
-                CreateWindow(
-                    "BUTTON",
-                    "Bypass All",
-                    WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX,
-                    200, 510, 100, 30,
-                    hwnd,
-                    (HMENU)ID_BTN_BYPASS_ALL,
-                    GetModuleHandle(NULL),
-                    nullptr
-                );
+bool movePluginInChain(int fromIndex, int toIndex) {
+    if (fromIndex < 0 || fromIndex >= g_pluginChain.size() ||
+        toIndex < 0 || toIndex >= g_pluginChain.size()) {
+        std::cerr << "Invalid plugin indices for move: " << fromIndex << " -> " << toIndex << std::endl;
+        return false;
+    }
+    
+    if (fromIndex == toIndex) {
+        return true; // No change needed
+    }
+    
+    // Store the plugin to move
+    auto pluginToMove = std::move(g_pluginChain[fromIndex]);
+    
+    // Remove from original position
+    g_pluginChain.erase(g_pluginChain.begin() + fromIndex);
+    
+    // Insert at new position
+    g_pluginChain.insert(g_pluginChain.begin() + toIndex, std::move(pluginToMove));
+    
+    std::cout << "Moved plugin in chain: " << fromIndex << " -> " << toIndex << std::endl;
+    
+    return true;
+}
 
-                CreateWindow(
-                    "BUTTON",
-                    "Save Chain",
-                    WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-                    20, 550, 100, 30,
-                    hwnd,
-                    (HMENU)ID_BTN_SAVE_CHAIN,
-                    GetModuleHandle(NULL),
-                    nullptr
-                );
+// Display the list of plugins in the UI
+void displayPluginList() {
+    #ifdef _WIN32
+    if (g_hwndPluginList) {
+        // Clear the list
+        SendMessage(g_hwndPluginList, LB_RESETCONTENT, 0, 0);
 
-                CreateWindow(
-                    "BUTTON",
-                    "Load Chain",
-                    WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-                    130, 550, 100, 30,
-                    hwnd,
-                    (HMENU)ID_BTN_LOAD_CHAIN,
-                    GetModuleHandle(NULL),
-                    nullptr
-                );
-
-                // Create status bar
-                g_hwndStatusBar = CreateWindow(
-                    STATUSCLASSNAME,
-                    nullptr,
-                    WS_CHILD | WS_VISIBLE | SBARS_SIZEGRIP,
-                    0, 0, 0, 0,
-                    hwnd,
-                    (HMENU)ID_STATUS_BAR,
-                    GetModuleHandle(NULL),
-                    nullptr
-                );
-
-                // Set status bar text
-                SendMessage(g_hwndStatusBar, SB_SETTEXT, 0, (LPARAM)"Ready");
-
-                // Create parameter editor area
-                g_hwndParamEditor = CreateWindow(
-                    "STATIC",
-                    "Select a plugin to edit its parameters",
-                    WS_CHILD | WS_VISIBLE | SS_CENTER | WS_BORDER,
-                    340, 60, 650, 500,
-                    hwnd,
-                    nullptr,
-                    GetModuleHandle(NULL),
-                    nullptr
-                );
-
-                // Set fonts for all controls
-                HFONT hFont = CreateFont(
-                    16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-                    ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                    CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
-                    "Segoe UI"
-                );
-
-                EnumChildWindows(hwnd, [](HWND hwndChild, LPARAM lParam) -> BOOL {
-                    SendMessage(hwndChild, WM_SETFONT, (WPARAM)lParam, TRUE);
-                    return TRUE;
-                }, (LPARAM)hFont);
+        // Add each plugin to the list
+        for (const auto& item : g_pluginChain) {
+            std::string displayName = item.name;
+            if (item.bypass) {
+                displayName += " (Bypassed)";
             }
-            return 0;
+            SendMessage(g_hwndPluginList, LB_ADDSTRING, 0, (LPARAM)displayName.c_str());
+        }
+    }
+    #else
+    // Console-based list for non-Windows platforms
+    std::cout << "Plugin Chain:" << std::endl;
+    int index = 0;
+    for (const auto& item : g_pluginChain) {
+        std::cout << index << ": " << item.name;
+        if (item.bypass) {
+            std::cout << " (Bypassed)";
+        }
+        std::cout << std::endl;
+        index++;
+    }
+    std::cout << std::endl;
+    #endif
+}
 
-        case WM_COMMAND:
-            // Handle button clicks and control notifications
-            switch (LOWORD(wParam)) {
-                case ID_BTN_ADD_PLUGIN:
-                    // Show file dialog to select a plugin
-                    {
-                        char szFile[MAX_PATH] = "";
-                        OPENFILENAME ofn = { 0 };
+// Display Voicemeeter information
+void displayVoicemeeterInfo() {
+    if (!g_voicemeeterClient) {
+        std::cout << "Voicemeeter client not initialized." << std::endl;
+        return;
+    }
 
-                        ofn.lStructSize = sizeof(OPENFILENAME);
-                        ofn.hwndOwner = hwnd;
-                        ofn.lpstrFilter = "VST3 Plugins (*.vst3)\0*.vst3\0"
-                                         "AAX Plugins (*.aaxplugin)\0*.aaxplugin\0"
-                                         "All Files (*.*)\0*.*\0";
-                        ofn.lpstrFile = szFile;
-                        ofn.nMaxFile = MAX_PATH;
-                        ofn.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
+    auto type = g_voicemeeterClient->getVoicemeeterType();
+    std::string typeName;
 
-                        if (GetOpenFileName(&ofn)) {
-                            // Determine format from file extension
-                            std::string path = szFile;
-                            PluginFormat format = PluginFormat::UNKNOWN;
-
-                            if (string_ends_with(path, ".vst3")) {
-                                format = PluginFormat::VST3;
-                            } else if (string_ends_with(path, ".aaxplugin")) {
-                                format = PluginFormat::AAX;
-                            } else if (string_ends_with(path, ".component")) {
-                                format = PluginFormat::AAU;
-                            } else if (string_ends_with(path, ".lua")) {
-                                format = PluginFormat::LUA;
-                            } else if (string_ends_with(path, ".jsfx")) {
-                                format = PluginFormat::REAPER;
-                            }
-
-                            // Load the plugin
-                            if (format != PluginFormat::UNKNOWN) {
-                                if (loadPlugin(path, format)) {
-                                    // Update the plugin list UI
-                                    SendMessage(g_hwndStatusBar, SB_SETTEXT, 0, (LPARAM)("Loaded plugin: " + path).c_str());
-                                    displayPluginList();
-                                } else {
-                                    MessageBox(hwnd, "Failed to load plugin", "Error", MB_OK | MB_ICONERROR);
-                                }
-                            } else {
-                                MessageBox(hwnd, "Unknown plugin format", "Error", MB_OK | MB_ICONERROR);
-                            }
-                        }
-                    }
-                    break;
-
-                case ID_BTN_REMOVE_PLUGIN:
-                    // Remove selected plugin from chain
-                    {
-                        int selectedIndex = (int)SendMessage(g_hwndPluginList, LB_GETCURSEL, 0, 0);
-                        if (selectedIndex >= 0 && selectedIndex < g_pluginChain.size()) {
-                            g_pluginChain.erase(g_pluginChain.begin() + selectedIndex);
-                            displayPluginList();
-                        }
-                    }
-                    break;
-
-                case ID_BTN_MOVE_UP:
-                    // Move selected plugin up in the chain
-                    {
-                        int selectedIndex = (int)SendMessage(g_hwndPluginList, LB_GETCURSEL, 0, 0);
-                        if (selectedIndex > 0 && selectedIndex < g_pluginChain.size()) {
-                            std::swap(g_pluginChain[selectedIndex], g_pluginChain[selectedIndex - 1]);
-                            displayPluginList();
-                            SendMessage(g_hwndPluginList, LB_SETCURSEL, selectedIndex - 1, 0);
-                        }
-                    }
-                    break;
-
-                case ID_BTN_MOVE_DOWN:
-                    // Move selected plugin down in the chain
-                    {
-                        int selectedIndex = (int)SendMessage(g_hwndPluginList, LB_GETCURSEL, 0, 0);
-                        if (selectedIndex >= 0 && selectedIndex < g_pluginChain.size() - 1) {
-                            std::swap(g_pluginChain[selectedIndex], g_pluginChain[selectedIndex + 1]);
-                            displayPluginList();
-                            SendMessage(g_hwndPluginList, LB_SETCURSEL, selectedIndex + 1, 0);
-                        }
-                    }
-                    break;
-
-                case ID_BTN_BYPASS_ALL:
-                    // Toggle bypass state for all plugins
-                    {
-                        g_bypassAllPlugins = !g_bypassAllPlugins;
-                        SendMessage(GetDlgItem(hwnd, ID_BTN_BYPASS_ALL), BM_SETCHECK, g_bypassAllPlugins ? BST_CHECKED : BST_UNCHECKED, 0);
-                    }
-                    break;
-
-                case ID_BTN_SAVE_CHAIN:
-                    // Save the current plugin chain to a file
-                    {
-                        char szFile[MAX_PATH] = "plugin_chain.vmpchain";
-                        OPENFILENAME ofn = { 0 };
-
-                        ofn.lStructSize = sizeof(OPENFILENAME);
-                        ofn.hwndOwner = hwnd;
-                        ofn.lpstrFilter = "Voicemeeter Plugin Chain (*.vmpchain)\0*.vmpchain\0All Files (*.*)\0*.*\0";
-                        ofn.lpstrFile = szFile;
-                        ofn.nMaxFile = MAX_PATH;
-                        ofn.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT;
-                        ofn.lpstrDefExt = "vmpchain";
-
-                        if (GetSaveFileName(&ofn)) {
-                            // Implement saving the plugin chain to the file
-                            // This would serialize the plugin chain to the file
-                            MessageBox(hwnd, "Chain saved successfully", "Success", MB_OK | MB_ICONINFORMATION);
-                            SendMessage(g_hwndStatusBar, SB_SETTEXT, 0, (LPARAM)("Chain saved to: " + std::string(szFile)).c_str());
-                        }
-                    }
-                    break;
-
-                case ID_BTN_LOAD_CHAIN:
-                    // Load a plugin chain from a file
-                    {
-                        char szFile[MAX_PATH] = "";
-                        OPENFILENAME ofn = { 0 };
-
-                        ofn.lStructSize = sizeof(OPENFILENAME);
-                        ofn.hwndOwner = hwnd;
-                        ofn.lpstrFilter = "Voicemeeter Plugin Chain (*.vmpchain)\0*.vmpchain\0All Files (*.*)\0*.*\0";
-                        ofn.lpstrFile = szFile;
-                        ofn.nMaxFile = MAX_PATH;
-                        ofn.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
-
-                        if (GetOpenFileName(&ofn)) {
-                            // Implement loading the plugin chain from the file
-                            // This would deserialize the plugin chain from the file
-                            MessageBox(hwnd, "Chain loaded successfully", "Success", MB_OK | MB_ICONINFORMATION);
-                            SendMessage(g_hwndStatusBar, SB_SETTEXT, 0, (LPARAM)("Chain loaded from: " + std::string(szFile)).c_str());
-                        }
-                    }
-                    break;
-
-                case ID_LISTBOX_PLUGINS:
-                    // Handle selection change in the plugin list
-                    if (HIWORD(wParam) == LBN_SELCHANGE) {
-                        int selectedIndex = (int)SendMessage(g_hwndPluginList, LB_GETCURSEL, 0, 0);
-                        if (selectedIndex >= 0 && selectedIndex < g_pluginChain.size()) {
-                            g_selectedPluginIndex = selectedIndex;
-                            // Update the parameter editor UI to show parameters for the selected plugin
-                            auto& plugin = g_pluginChain[selectedIndex].plugin;
-                            std::string info = "Plugin: " + plugin->getName() + "\n\n";
-                            info += "Format: " + std::string(plugin->getFormatName()) + "\n";
-                            info += "Vendor: " + plugin->getVendor() + "\n";
-                            info += "Version: " + plugin->getVersion() + "\n\n";
-                            info += "Parameters:\n";
-
-                            for (int i = 0; i < plugin->getParameterCount(); i++) {
-                                PluginParameter param = plugin->getParameter(i);
-                                info += "  " + param.name + ": " + std::to_string(param.currentValue) + "\n";
-                            }
-
-                            SetWindowText(g_hwndParamEditor, info.c_str());
-                        } else {
-                            g_selectedPluginIndex = -1;
-                            SetWindowText(g_hwndParamEditor, "Select a plugin to edit its parameters");
-                        }
-                    }
-                    break;
-            }
-            return 0;
-
-        case WM_PLUGIN_UPDATED:
-            // Handle plugin update notifications
-            displayPluginList();
-            return 0;
-
-        case WM_AUDIO_LEVELS_UPDATED:
-            // Update audio level meters in the UI (not implemented yet)
-            return 0;
-
-        case WM_SIZE:
-            // Handle window resizing
-            {
-                int width = LOWORD(lParam);
-                int height = HIWORD(lParam);
-
-                // Reposition status bar
-                SendMessage(g_hwndStatusBar, WM_SIZE, 0, 0);
-
-                // Reposition other controls as needed
-                // ...
-            }
-            return 0;
-
-        case WM_CLOSE:
-            // Handle window close (X button)
-            DestroyWindow(hwnd);
-            return 0;
-
-        case WM_DESTROY:
-            // Handle window destruction
-            g_running = false;
-            PostQuitMessage(0);
-            return 0;
-
+    switch (type) {
+        case VoicemeeterIntegration::VoicemeeterType::STANDARD:
+            typeName = "Standard";
+            break;
+        case VoicemeeterIntegration::VoicemeeterType::BANANA:
+            typeName = "Banana";
+            break;
+        case VoicemeeterIntegration::VoicemeeterType::POTATO:
+            typeName = "Potato";
+            break;
+        case VoicemeeterIntegration::VoicemeeterType::POTATO_X64:
+            typeName = "Potato x64";
+            break;
         default:
-            return DefWindowProc(hwnd, uMsg, wParam, lParam);
+            typeName = "Unknown";
+            break;
+    }
+
+    long version = g_voicemeeterClient->getVoicemeeterVersion();
+    int v1 = (version & 0xFF000000) >> 24;
+    int v2 = (version & 0x00FF0000) >> 16;
+    int v3 = (version & 0x0000FF00) >> 8;
+    int v4 = version & 0x000000FF;
+
+    std::cout << "\nVoicemeeter Information:\n";
+    std::cout << "----------------------\n";
+    std::cout << "Type: " << typeName << "\n";
+    std::cout << "Version: " << v1 << "." << v2 << "." << v3 << "." << v4 << "\n";
+    std::cout << "Strips: " << g_voicemeeterClient->getNumStrips() << "\n";
+    std::cout << "Buses: " << g_voicemeeterClient->getNumBuses() << "\n";
+    std::cout << "----------------------\n\n";
+}
+
+// Enhanced audio processing function
+void processAudio(float** inputs, float** outputs, int numInputs, int numOutputs, int numSamples) {
+    // Lock audio mutex for thread safety
+    std::lock_guard<std::mutex> lock(g_audioMutex);
+    
+    if (g_pluginChain.empty() || g_bypassAllPlugins) {
+        // No plugins or all bypassed - pass through
+        for (int ch = 0; ch < std::min(numInputs, numOutputs); ch++) {
+            if (inputs[ch] && outputs[ch]) {
+                std::memcpy(outputs[ch], inputs[ch], numSamples * sizeof(float));
+            }
+        }
+        return;
+    }
+
+    // Allocate temporary buffers for plugin chain processing
+    std::vector<float*> tempInputs(numInputs, nullptr);
+    std::vector<float*> tempOutputs(numOutputs, nullptr);
+    
+    for (int ch = 0; ch < numOutputs; ch++) {
+        tempOutputs[ch] = new float[numSamples];
+    }
+    
+    for (int ch = 0; ch < numInputs; ch++) {
+        tempInputs[ch] = new float[numSamples];
+        std::memcpy(tempInputs[ch], inputs[ch], numSamples * sizeof(float));
+    }
+    
+    try {
+        // Process each plugin in the chain
+        for (auto& item : g_pluginChain) {
+            if (item.bypass) {
+                // Plugin is bypassed, just pass through
+                continue;
+            }
+            
+            // Process with this plugin
+            try {
+                item.plugin->process(tempInputs.data(), tempOutputs.data(), numInputs, numOutputs, numSamples);
+                
+                // Swap buffers - output becomes input for next plugin
+                for (int ch = 0; ch < numInputs && ch < numOutputs; ch++) {
+                    std::swap(tempInputs[ch], tempOutputs[ch]);
+                }
+            }
+            catch (const std::exception& e) {
+                std::cerr << "Error processing plugin " << item.name << ": " << e.what() << std::endl;
+                // On error, just continue with unmodified audio
+            }
+        }
+        
+        // Copy final result to output - it will be in tempInputs after the last swap
+        for (int ch = 0; ch < numOutputs; ch++) {
+            if (outputs[ch] && tempInputs[ch]) {
+                std::memcpy(outputs[ch], tempInputs[ch], numSamples * sizeof(float));
+            }
+        }
+    }
+    catch (const std::exception& e) {
+        // Handle any unexpected errors by passing through original audio
+        std::cerr << "Unexpected error in audio processing chain: " << e.what() << std::endl;
+        
+        for (int ch = 0; ch < std::min(numInputs, numOutputs); ch++) {
+            if (inputs[ch] && outputs[ch]) {
+                std::memcpy(outputs[ch], inputs[ch], numSamples * sizeof(float));
+            }
+        }
+    }
+    
+    // Clean up temporary buffers
+    for (int ch = 0; ch < numOutputs; ch++) {
+        delete[] tempOutputs[ch];
+    }
+    
+    for (int ch = 0; ch < numInputs; ch++) {
+        delete[] tempInputs[ch];
     }
 }
-#endif
+
+// Initialize application components with better error handling
+bool initializeApplication() {
+    std::cout << "Initializing application" << std::endl;
+    
+    try {
+        // Initialize Voicemeeter integration
+        g_voicemeeterClient = std::make_unique<VoicemeeterIntegration::VoicemeeterClient>();
+
+        if (!g_voicemeeterClient->isVoicemeeterInstalled()) {
+            std::cerr << "Voicemeeter is not installed. Please install Voicemeeter first." << std::endl;
+            return false;
+        }
+
+        // Try to connect
+        if (!g_voicemeeterClient->initialize()) {
+            // Voicemeeter might not be running, try to launch it
+            std::cout << "Voicemeeter not running, attempting to launch..." << std::endl;
+            if (!g_voicemeeterClient->launchVoicemeeter()) {
+                std::cerr << "Failed to launch Voicemeeter." << std::endl;
+                return false;
+            }
+            
+            // Give some time for Voicemeeter to start up
+            std::cout << "Waiting for Voicemeeter to start..." << std::endl;
+            std::this_thread::sleep_for(std::chrono::seconds(2));
+            
+            // Try to connect again
+            if (!g_voicemeeterClient->initialize()) {
+                std::cerr << "Failed to connect to Voicemeeter after launching." << std::endl;
+                return false;
+            }
+        }
+
+        std::cout << "Successfully connected to Voicemeeter" << std::endl;
+        
+        #ifdef _WIN32
+        // Register window class
+        WNDCLASS wc = {0};
+        wc.lpfnWndProc = WindowProc;
+        wc.hInstance = GetModuleHandle(NULL);
+        wc.lpszClassName = "VoicemeeterPluginHostClass";
+        wc.hbrBackground = CreateSolidBrush(VM_COLOR_BACKGROUND);
+        wc.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+        wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+
+        if (!RegisterClass(&wc)) {
+            std::cerr << "Failed to register window class" << std::endl;
+            return false;
+        }
+
+        // Create main window
+        g_hwndMain = CreateWindowEx(
+            0,                              // Optional window styles
+            "VoicemeeterPluginHostClass",   // Window class
+            WINDOW_TITLE,                   // Window text
+            WS_OVERLAPPEDWINDOW,            // Window style
+            CW_USEDEFAULT, CW_USEDEFAULT,   // Position
+            WINDOW_WIDTH, WINDOW_HEIGHT,    // Size
+            NULL,                           // Parent window
+            NULL,                           // Menu
+            GetModuleHandle(NULL),          // Instance handle
+            NULL                            // Additional application data
+        );
+
+        if (g_hwndMain == NULL) {
+            std::cerr << "Failed to create window" << std::endl;
+            return false;
+        }
+
+        // Set window title with Voicemeeter info
+        auto type = g_voicemeeterClient->getVoicemeeterType();
+        std::string title = WINDOW_TITLE;
+
+        switch (type) {
+            case VoicemeeterIntegration::VoicemeeterType::STANDARD:
+                title += " - Voicemeeter Standard";
+                break;
+            case VoicemeeterIntegration::VoicemeeterType::BANANA:
+                title += " - Voicemeeter Banana";
+                break;
+            case VoicemeeterIntegration::VoicemeeterType::POTATO:
+                title += " - Voicemeeter Potato";
+                break;
+            case VoicemeeterIntegration::VoicemeeterType::POTATO_X64:
+                title += " - Voicemeeter Potato x64";
+                break;
+        }
+
+        SetWindowText(g_hwndMain, title.c_str());
+
+        // Show window
+        ShowWindow(g_hwndMain, SW_SHOW);
+        UpdateWindow(g_hwndMain);
+        #endif
+
+        std::cout << "Application initialized successfully" << std::endl;
+        return true;
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Error initializing application: " << e.what() << std::endl;
+        return false;
+    }
+}
+
+// Improved shutdown method
+void shutdownApplication() {
+    std::cout << "Shutting down application" << std::endl;
+    
+    // Stop audio processing
+    if (g_voicemeeterClient) {
+        g_voicemeeterClient->stopAudioProcessing();
+        g_voicemeeterClient->shutdown();
+        std::cout << "Voicemeeter client shutdown complete" << std::endl;
+    }
+
+    // Clean up plugin chain
+    for (auto& item : g_pluginChain) {
+        try {
+            if (item.plugin->hasEditor()) {
+                item.plugin->hideEditor();
+            }
+            item.plugin->suspend();
+        }
+        catch (const std::exception& e) {
+            std::cerr << "Error during plugin cleanup: " << e.what() << std::endl;
+        }
+    }
+    
+    g_pluginChain.clear();
+    g_loadedPlugins.clear();
+    g_pluginDescriptions.clear();
+
+    std::cout << "Application shutdown complete" << std::endl;
+}
 
 // Main entry point
 int main(int argc, char** argv) {
@@ -741,306 +754,4 @@ int main(int argc, char** argv) {
     shutdownApplication();
 
     return 0;
-}
-
-// Initialize application components
-bool initializeApplication() {
-    // Initialize Voicemeeter integration
-    g_voicemeeterClient = std::make_unique<VoicemeeterIntegration::VoicemeeterClient>();
-
-    if (!g_voicemeeterClient->isVoicemeeterInstalled()) {
-        std::cerr << "Voicemeeter is not installed. Please install Voicemeeter first." << std::endl;
-        return false;
-    }
-
-    // Try to connect
-    if (!g_voicemeeterClient->initialize()) {
-        // Voicemeeter might not be running, try to launch it
-        std::cout << "Voicemeeter not running, attempting to launch..." << std::endl;
-        if (!g_voicemeeterClient->launchVoicemeeter()) {
-            std::cerr << "Failed to launch Voicemeeter." << std::endl;
-            return false;
-        }
-        
-        // Give some time for Voicemeeter to start up
-        std::this_thread::sleep_for(std::chrono::seconds(2));
-        
-        if (!g_voicemeeterClient->initialize()) {
-            std::cerr << "Failed to connect to Voicemeeter after launching." << std::endl;
-            return false;
-        }
-    }
-
-    // Register audio callback with thread safety
-    g_voicemeeterClient->registerAudioCallback([](float** inputs, float** outputs, int numInputs, int numOutputs, int numSamples) {
-        std::lock_guard<std::mutex> lock(g_audioMutex);
-        processAudio(inputs, outputs, numInputs, numOutputs, numSamples);
-    });
-
-    // Initialize UI (minimal implementation for now)
-    #ifdef _WIN32
-    // Initialize common controls
-    INITCOMMONCONTROLSEX icc;
-    icc.dwSize = sizeof(INITCOMMONCONTROLSEX);
-    icc.dwICC = ICC_WIN95_CLASSES | ICC_BAR_CLASSES;
-    InitCommonControlsEx(&icc);
-
-    // Register window class
-    WNDCLASS wc = {};
-    wc.lpfnWndProc = WindowProc;
-    wc.hInstance = GetModuleHandle(NULL);
-    wc.lpszClassName = "VoicemeeterPluginHostClass";
-    wc.hbrBackground = CreateSolidBrush(VM_COLOR_BACKGROUND);
-    wc.hIcon = LoadIcon(NULL, IDI_APPLICATION);
-    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-
-    RegisterClass(&wc);
-
-    // Create main window
-    g_hwndMain = CreateWindowEx(
-        0,                              // Optional window styles
-        "VoicemeeterPluginHostClass",   // Window class
-        WINDOW_TITLE,                   // Window text
-        WS_OVERLAPPEDWINDOW,            // Window style
-        CW_USEDEFAULT, CW_USEDEFAULT,   // Position
-        WINDOW_WIDTH, WINDOW_HEIGHT,    // Size
-        NULL,                           // Parent window
-        NULL,                           // Menu
-        GetModuleHandle(NULL),          // Instance handle
-        NULL                            // Additional application data
-    );
-
-    if (g_hwndMain == NULL) {
-        std::cerr << "Failed to create window." << std::endl;
-        return false;
-    }
-
-    // Set window title with Voicemeeter info
-    auto type = g_voicemeeterClient->getVoicemeeterType();
-    std::string title = WINDOW_TITLE;
-
-    switch (type) {
-        case VoicemeeterIntegration::VoicemeeterType::STANDARD:
-            title += " - Voicemeeter Standard";
-            break;
-        case VoicemeeterIntegration::VoicemeeterType::BANANA:
-            title += " - Voicemeeter Banana";
-            break;
-        case VoicemeeterIntegration::VoicemeeterType::POTATO:
-            title += " - Voicemeeter Potato";
-            break;
-        case VoicemeeterIntegration::VoicemeeterType::POTATO_X64:
-            title += " - Voicemeeter Potato x64";
-            break;
-    }
-
-    SetWindowText(g_hwndMain, title.c_str());
-
-    // Show window
-    ShowWindow(g_hwndMain, SW_SHOW);
-    UpdateWindow(g_hwndMain);
-    #endif
-
-    return true;
-}
-
-// Shutdown application
-void shutdownApplication() {
-    // Stop audio processing
-    if (g_voicemeeterClient) {
-        g_voicemeeterClient->stopAudioProcessing();
-        g_voicemeeterClient->shutdown();
-    }
-
-    // Clean up plugin chain
-    g_pluginChain.clear();
-    g_loadedPlugins.clear();
-    g_pluginDescriptions.clear();
-
-    std::cout << "Application shutdown complete." << std::endl;
-}
-
-// Improved audio processing function
-void processAudio(float** inputs, float** outputs, int numInputs, int numOutputs, int numSamples) {
-    // Skip processing if no plugins or all bypassed
-    if (g_pluginChain.empty() || g_bypassAllPlugins) {
-        // Pass through audio
-        for (int ch = 0; ch < std::min(numInputs, numOutputs); ch++) {
-            if (inputs[ch] && outputs[ch]) {
-                std::memcpy(outputs[ch], inputs[ch], numSamples * sizeof(float));
-            }
-        }
-        return;
-    }
-    
-    // Create temporary buffers for chaining
-    std::vector<float*> tempInputs(numInputs);
-    std::vector<float*> tempOutputs(numOutputs);
-    
-    for (int ch = 0; ch < numOutputs; ch++) {
-        tempOutputs[ch] = new float[numSamples];
-        // Initialize with input if available or zero if not
-        if (ch < numInputs && inputs[ch]) {
-            std::memcpy(tempOutputs[ch], inputs[ch], numSamples * sizeof(float));
-        } else {
-            std::memset(tempOutputs[ch], 0, numSamples * sizeof(float));
-        }
-    }
-    
-    // Process through each plugin in chain
-    for (auto& item : g_pluginChain) {
-        // Skip bypassed plugins
-        if (item.bypass) {/ Create scanner for the specified format
-            continue;    auto scanner = createPluginScanner(format);
-        }
-                std::cerr << "Failed to create plugin scanner for format: " << static_cast<int>(format) << std::endl;
-        // Swap buffers - output from previous becomes input to current
-        for (int ch = 0; ch < numOutputs; ch++) {
-            tempInputs[ch] = tempOutputs[ch];
-        }plugin
-           auto plugin = scanner->loadPlugin(path);
-        try {    if (!plugin) {
-            item.plugin->process(tempInputs.data(), tempOutputs.data(), numInputs, numOutputs, numSamples);ugin: " << path << std::endl;
-        } catch (const std::exception& e) {
-            std::cerr << "Error processing plugin " << item.name << ": " << e.what() << std::endl;
-            // On error, just pass through
-            for (int ch = 0; ch < numOutputs; ch++) {    std::cout << "Loaded plugin: " << plugin->getName() << std::endl;
-                if (ch < numInputs) {
-                    std::memcpy(tempOutputs[ch], tempInputs[ch], numSamples * sizeof(float));
-                }    addPluginToChain(plugin);
-            }
-        }
-    }}
-    
-    // Copy final result to outputo the processing chain
-    for (int ch = 0; ch < numOutputs; ch++) {shared_ptr<PluginInstance> plugin) {
-        if (outputs[ch] && tempOutputs[ch]) {or the plugin
-            std::memcpy(outputs[ch], tempOutputs[ch], numSamples * sizeof(float));luginChainItem item(plugin);
-        }
-    }   // Add to the chain
-        g_pluginChain.push_back(std::move(item));
-    // Clean up
-    for (int ch = 0; ch < numOutputs; ch++) {ins map
-        delete[] tempOutputs[ch];
-    }
-}    // Update UI
-
-// Add a plugin to the processing chain
-void addPluginToChain(std::shared_ptr<PluginInstance> plugin) {
-    // Create a chain item for the plugin
-    PluginChainItem item(plugin);
-
-    // Add to the chain
-    g_pluginChain.push_back(std::move(item));order the plugin chain
-oid reorderPluginChain() {
-    // Store in loaded plugins map    // No implementation needed - handled by UI actions
-    g_loadedPlugins[plugin->getUniqueId()] = plugin;
-
-    // Update UI a plugin in the chain
-    #ifdef _WIN32::string& uniqueId, bool enable) {
-    if (g_hwndPluginList) {luginChain) {
-        displayPluginList();
-    }            item.bypass = !enable;
-    #endif
-}
-
-// Reorder the plugin chain
-void reorderPluginChain() {
-    // No implementation needed - handled by UI actionse list of plugins in the UI
-}
-f _WIN32
-// Enable/disable a plugin in the chainf (g_hwndPluginList) {
-void enablePlugin(const std::string& uniqueId, bool enable) {/ Clear the list
-    for (auto& item : g_pluginChain) {NT, 0, 0);
-        if (item.uniqueId == uniqueId) {
-            item.bypass = !enable;h plugin to the list
-            break;n) {
-        }
-    }s) {
-}sed)";
-   }
-// Display the list of plugins in the UIluginList, LB_ADDSTRING, 0, (LPARAM)displayName.c_str());
-void displayPluginList() {
-    #ifdef _WIN32
-    if (g_hwndPluginList) {
-        // Clear the listsole-based list for non-Windows platforms
-        SendMessage(g_hwndPluginList, LB_RESETCONTENT, 0, 0);   std::cout << "Plugin Chain:" << std::endl;
-    int index = 0;
-        // Add each plugin to the listinChain) {
-        for (const auto& item : g_pluginChain) {: " << item.name;
-            std::string displayName = item.name;
-            if (item.bypass) {
-                displayName += " (Bypassed)";
-            }   std::cout << std::endl;
-            SendMessage(g_hwndPluginList, LB_ADDSTRING, 0, (LPARAM)displayName.c_str());        index++;
-        }
-    }l;
-    #else    #endif
-    // Console-based list for non-Windows platforms
-    std::cout << "Plugin Chain:" << std::endl;
-    int index = 0;
-    for (const auto& item : g_pluginChain) {eeterInfo() {
-        std::cout << index << ": " << item.name;
-        if (item.bypass) {r client not initialized." << std::endl;
-            std::cout << " (Bypassed)";
-        }
-        std::cout << std::endl;
-        index++;voicemeeterClient->getVoicemeeterType();
-    }
-    std::cout << std::endl;
-    #endif{
-}cemeeterIntegration::VoicemeeterType::STANDARD:
-;
-// Display Voicemeeter information       break;
-void displayVoicemeeterInfo() {        case VoicemeeterIntegration::VoicemeeterType::BANANA:
-    if (!g_voicemeeterClient) {
-        std::cout << "Voicemeeter client not initialized." << std::endl;
-        return;meeterType::POTATO:
-    }
-
-    auto type = g_voicemeeterClient->getVoicemeeterType();        case VoicemeeterIntegration::VoicemeeterType::POTATO_X64:
-    std::string typeName;
-
-    switch (type) {
-        case VoicemeeterIntegration::VoicemeeterType::STANDARD:
-            typeName = "Standard";
-            break;
-        case VoicemeeterIntegration::VoicemeeterType::BANANA:cemeeterVersion();
-            typeName = "Banana";   int v1 = (version & 0xFF000000) >> 24;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-}    std::cout << "----------------------\n\n";    std::cout << "Buses: " << g_voicemeeterClient->getNumBuses() << "\n";    std::cout << "Strips: " << g_voicemeeterClient->getNumStrips() << "\n";    std::cout << "Version: " << v1 << "." << v2 << "." << v3 << "." << v4 << "\n";    std::cout << "Type: " << typeName << "\n";    std::cout << "----------------------\n";    std::cout << "\nVoicemeeter Information:\n";    int v4 = version & 0x000000FF;    int v3 = (version & 0x0000FF00) >> 8;    int v2 = (version & 0x00FF0000) >> 16;    int v1 = (version & 0xFF000000) >> 24;    long version = g_voicemeeterClient->getVoicemeeterVersion();    }            typeName = "Unknown";        default:            break;            typeName = "Potato x64";        case VoicemeeterIntegration::VoicemeeterType::POTATO_X64:            break;            typeName = "Potato";        case VoicemeeterIntegration::VoicemeeterType::POTATO:            break;    int v2 = (version & 0x00FF0000) >> 16;
-    int v3 = (version & 0x0000FF00) >> 8;
-    int v4 = version & 0x000000FF;
-
-    std::cout << "\nVoicemeeter Information:\n";
-    std::cout << "----------------------\n";
-    std::cout << "Type: " << typeName << "\n";
-    std::cout << "Version: " << v1 << "." << v2 << "." << v3 << "." << v4 << "\n";
-    std::cout << "Strips: " << g_voicemeeterClient->getNumStrips() << "\n";
-    std::cout << "Buses: " << g_voicemeeterClient->getNumBuses() << "\n";
-    std::cout << "----------------------\n\n";
 }
