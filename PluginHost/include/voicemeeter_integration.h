@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 #include <functional>
+#include <memory>
 
 // Include the Voicemeeter Remote API header
 #include "../../VoicemeeterRemote.h"
@@ -27,6 +28,9 @@ enum class VoicemeeterType {
 
 // Audio callback for processing
 using AudioProcessCallback = std::function<void(float**, float**, int, int, int)>;
+
+// Forward declaration for implementation details
+class VoicemeeterClientImpl;
 
 class VoicemeeterClient {
 public:
@@ -71,18 +75,16 @@ public:
     bool haveParametersChanged();
 
 private:
-    bool m_initialized;
-    VoicemeeterType m_type;
-    long m_version;
+    // Implementation details hidden with PIMPL pattern
+    std::unique_ptr<VoicemeeterClientImpl> m_impl;
     
     // Audio callback registered with Voicemeeter
     static long __stdcall audioCallback(void* lpUser, long nCommand, void* lpData, long nnn);
     
-    // Store our callback function to be used in the static callback
-    AudioProcessCallback m_audioProcessCallback;
-    
-    // Helper to convert parameter types
-    bool convertParameter(const std::string& paramName, float value);
+    // Member variables for backward compatibility
+    bool m_initialized;
+    VoicemeeterType m_type;
+    long m_version;
 };
 
 } // namespace VoicemeeterIntegration
