@@ -5,6 +5,18 @@
 #include <atomic>
 #include <iostream>
 #include <vector>
+#include <cstring>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
+// Forward declarations from plugin_interface.cpp
+#ifdef _WIN32
+extern bool loadVoicemeeterRemoteDLL();
+extern void unloadVoicemeeterRemoteDLL();
+extern void* getVoicemeeterProcAddress(const char* procName);
+#endif
 
 namespace VoicemeeterIntegration {
 
@@ -33,6 +45,54 @@ public:
     std::thread m_parameterThread;
     std::atomic<bool> m_parameterThreadRunning{false};
     std::atomic<bool> m_parametersChanged{false};
+    
+    #ifdef _WIN32
+    // Voicemeeter Remote API function pointers for Windows
+    T_VBVMR_Login VBVMR_Login = nullptr;
+    T_VBVMR_Logout VBVMR_Logout = nullptr;
+    T_VBVMR_RunVoicemeeter VBVMR_RunVoicemeeter = nullptr;
+    T_VBVMR_GetVoicemeeterType VBVMR_GetVoicemeeterType = nullptr;
+    T_VBVMR_GetVoicemeeterVersion VBVMR_GetVoicemeeterVersion = nullptr;
+    T_VBVMR_IsParametersDirty VBVMR_IsParametersDirty = nullptr;
+    T_VBVMR_GetParameterFloat VBVMR_GetParameterFloat = nullptr;
+    T_VBVMR_GetLevel VBVMR_GetLevel = nullptr;
+    T_VBVMR_SetParameterFloat VBVMR_SetParameterFloat = nullptr;
+    T_VBVMR_AudioCallbackRegister VBVMR_AudioCallbackRegister = nullptr;
+    T_VBVMR_AudioCallbackStart VBVMR_AudioCallbackStart = nullptr;
+    T_VBVMR_AudioCallbackStop VBVMR_AudioCallbackStop = nullptr;
+    T_VBVMR_AudioCallbackUnregister VBVMR_AudioCallbackUnregister = nullptr;
+    
+    // Load all function pointers from the DLL
+    bool loadFunctionPointers() {
+        VBVMR_Login = reinterpret_cast<T_VBVMR_Login>(getVoicemeeterProcAddress("VBVMR_Login"));
+        VBVMR_Logout = reinterpret_cast<T_VBVMR_Logout>(getVoicemeeterProcAddress("VBVMR_Logout"));
+        VBVMR_RunVoicemeeter = reinterpret_cast<T_VBVMR_RunVoicemeeter>(getVoicemeeterProcAddress("VBVMR_RunVoicemeeter"));
+        VBVMR_GetVoicemeeterType = reinterpret_cast<T_VBVMR_GetVoicemeeterType>(getVoicemeeterProcAddress("VBVMR_GetVoicemeeterType"));
+        VBVMR_GetVoicemeeterVersion = reinterpret_cast<T_VBVMR_GetVoicemeeterVersion>(getVoicemeeterProcAddress("VBVMR_GetVoicemeeterVersion"));
+        VBVMR_IsParametersDirty = reinterpret_cast<T_VBVMR_IsParametersDirty>(getVoicemeeterProcAddress("VBVMR_IsParametersDirty"));
+        VBVMR_GetParameterFloat = reinterpret_cast<T_VBVMR_GetParameterFloat>(getVoicemeeterProcAddress("VBVMR_GetParameterFloat"));
+        VBVMR_GetLevel = reinterpret_cast<T_VBVMR_GetLevel>(getVoicemeeterProcAddress("VBVMR_GetLevel"));
+        VBVMR_SetParameterFloat = reinterpret_cast<T_VBVMR_SetParameterFloat>(getVoicemeeterProcAddress("VBVMR_SetParameterFloat"));
+        VBVMR_AudioCallbackRegister = reinterpret_cast<T_VBVMR_AudioCallbackRegister>(getVoicemeeterProcAddress("VBVMR_AudioCallbackRegister"));
+        VBVMR_AudioCallbackStart = reinterpret_cast<T_VBVMR_AudioCallbackStart>(getVoicemeeterProcAddress("VBVMR_AudioCallbackStart"));
+        VBVMR_AudioCallbackStop = reinterpret_cast<T_VBVMR_AudioCallbackStop>(getVoicemeeterProcAddress("VBVMR_AudioCallbackStop"));
+        VBVMR_AudioCallbackUnregister = reinterpret_cast<T_VBVMR_AudioCallbackUnregister>(getVoicemeeterProcAddress("VBVMR_AudioCallbackUnregister"));
+        
+        // Check if all essential functions were loaded
+        return (VBVMR_Login != nullptr &&
+                VBVMR_Logout != nullptr &&
+                VBVMR_GetVoicemeeterType != nullptr &&
+                VBVMR_GetVoicemeeterVersion != nullptr &&
+                VBVMR_IsParametersDirty != nullptr &&
+                VBVMR_GetParameterFloat != nullptr &&
+                VBVMR_GetLevel != nullptr &&
+                VBVMR_SetParameterFloat != nullptr &&
+                VBVMR_AudioCallbackRegister != nullptr &&
+                VBVMR_AudioCallbackStart != nullptr &&
+                VBVMR_AudioCallbackStop != nullptr &&
+                VBVMR_AudioCallbackUnregister != nullptr);
+    }
+    #endif
 };
 
 // Data passed to audio callback
@@ -116,7 +176,7 @@ long __stdcall VoicemeeterClient::audioCallback(void* lpUser, long nCommand, voi
                               audiobuffer->audiobuffer_nbi,
                               audiobuffer->audiobuffer_nbo,
                               audiobuffer->audiobuffer_nbs);
-                              
+                
                 // Copy our output buffers to Voicemeeter's buffers
                 for (int i = 0; i < audiobuffer->audiobuffer_nbo; i++) {
                     if (audiobuffer->audiobuffer_w[i]) {
@@ -154,7 +214,64 @@ VoicemeeterClient::~VoicemeeterClient() {
 bool VoicemeeterClient::initialize() {
     if (m_impl->m_initialized) return true;
     
-    // Load Voicemeeter Remote DLL
+    #ifdef _WIN32
+    // On Windows, dynamically load the DLL
+    if (!loadVoicemeeterRemoteDLL()) {
+        std::cerr << "Failed to load Voicemeeter Remote DLL" << std::endl;
+        return false;
+    }
+    
+    // Load function pointers
+    if (!m_impl->loadFunctionPointers()) {
+        std::cerr << "Failed to load Voicemeeter Remote API functions" << std::endl;
+        unloadVoicemeeterRemoteDLL();
+        return false;
+    }
+    
+    // Login to Voicemeeter
+    long result = m_impl->VBVMR_Login();
+    if (result < 0) {
+        std::cerr << "Failed to login to Voicemeeter API: " << result << std::endl;
+        unloadVoicemeeterRemoteDLL();
+        return false;
+    }
+    
+    // Get Voicemeeter type
+    long vmType = 0;
+    result = m_impl->VBVMR_GetVoicemeeterType(&vmType);
+    if (result == 0) {
+        m_impl->m_type = static_cast<VoicemeeterType>(vmType);
+    } else {
+        std::cerr << "Failed to get Voicemeeter type: " << result << std::endl;
+        m_impl->VBVMR_Logout();
+        unloadVoicemeeterRemoteDLL();
+        return false;
+    }
+    
+    // Get Voicemeeter version
+    result = m_impl->VBVMR_GetVoicemeeterVersion(&m_impl->m_version);
+    if (result != 0) {
+        std::cerr << "Failed to get Voicemeeter version: " << result << std::endl;
+        m_impl->VBVMR_Logout();
+        unloadVoicemeeterRemoteDLL();
+        return false;
+    }
+    
+    // Start parameter monitoring thread
+    m_impl->m_parameterThreadRunning = true;
+    m_impl->m_parameterThread = std::thread([this]() {
+        while (m_impl->m_parameterThreadRunning) {
+            // Check if parameters have changed
+            long dirty = m_impl->VBVMR_IsParametersDirty();
+            if (dirty == 1) {
+                m_impl->m_parametersChanged = true;
+            }
+            // Sleep for a short time to avoid high CPU usage
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+    });
+    #else
+    // For Linux/macOS, we directly use the API functions
     long result = VBVMR_Login();
     if (result < 0) {
         std::cerr << "Failed to login to Voicemeeter API: " << result << std::endl;
@@ -193,6 +310,7 @@ bool VoicemeeterClient::initialize() {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
     });
+    #endif
     
     m_impl->m_initialized = true;
     return true;
@@ -212,7 +330,14 @@ void VoicemeeterClient::shutdown() {
     stopAudioProcessing();
     
     // Logout from Voicemeeter
+    #ifdef _WIN32
+    if (m_impl->VBVMR_Logout) {
+        m_impl->VBVMR_Logout();
+    }
+    unloadVoicemeeterRemoteDLL();
+    #else
     VBVMR_Logout();
+    #endif
     
     m_impl->m_initialized = false;
 }
@@ -229,7 +354,12 @@ long VoicemeeterClient::getVoicemeeterVersion() {
 
 // Launch Voicemeeter if not running
 bool VoicemeeterClient::launchVoicemeeter(VoicemeeterType type) {
+    #ifdef _WIN32
+    if (!m_impl->VBVMR_RunVoicemeeter) return false;
+    long result = m_impl->VBVMR_RunVoicemeeter(static_cast<long>(type));
+    #else
     long result = VBVMR_RunVoicemeeter(static_cast<long>(type));
+    #endif
     return (result == 0);
 }
 
@@ -255,7 +385,12 @@ bool VoicemeeterClient::registerAudioCallback(AudioProcessCallback callback,
     }
     
     char clientName[64] = "VoicemeeterPluginHost";
+    
+    #ifdef _WIN32
+    long result = m_impl->VBVMR_AudioCallbackRegister(mode, audioCallback, m_impl->m_callbackData.get(), clientName);
+    #else
     long result = VBVMR_AudioCallbackRegister(mode, audioCallback, m_impl->m_callbackData.get(), clientName);
+    #endif
     
     return (result == 0);
 }
@@ -265,7 +400,12 @@ bool VoicemeeterClient::startAudioProcessing() {
     if (!m_impl->m_initialized) return false;
     
     // Start audio
+    #ifdef _WIN32
+    long result = m_impl->VBVMR_AudioCallbackStart();
+    #else
     long result = VBVMR_AudioCallbackStart();
+    #endif
+    
     if (result != 0) {
         std::cerr << "Failed to start audio processing: " << result << std::endl;
         return false;
@@ -285,7 +425,12 @@ bool VoicemeeterClient::startAudioProcessing() {
 bool VoicemeeterClient::stopAudioProcessing() {
     if (!m_impl->m_initialized) return true;
     
+    #ifdef _WIN32
+    long result = m_impl->VBVMR_AudioCallbackStop();
+    #else
     long result = VBVMR_AudioCallbackStop();
+    #endif
+    
     if (result != 0) {
         std::cerr << "Failed to stop audio processing: " << result << std::endl;
         return false;
@@ -305,7 +450,12 @@ bool VoicemeeterClient::stopAudioProcessing() {
 bool VoicemeeterClient::setParameter(const std::string& paramName, float value) {
     if (!m_impl->m_initialized) return false;
     
+    #ifdef _WIN32
+    long result = m_impl->VBVMR_SetParameterFloat(const_cast<char*>(paramName.c_str()), value);
+    #else
     long result = VBVMR_SetParameterFloat(const_cast<char*>(paramName.c_str()), value);
+    #endif
+    
     return (result == 0);
 }
 
@@ -313,7 +463,12 @@ bool VoicemeeterClient::setParameter(const std::string& paramName, float value) 
 bool VoicemeeterClient::getParameter(const std::string& paramName, float& value) {
     if (!m_impl->m_initialized) return false;
     
+    #ifdef _WIN32
+    long result = m_impl->VBVMR_GetParameterFloat(const_cast<char*>(paramName.c_str()), &value);
+    #else
     long result = VBVMR_GetParameterFloat(const_cast<char*>(paramName.c_str()), &value);
+    #endif
+    
     return (result == 0);
 }
 
@@ -321,7 +476,12 @@ bool VoicemeeterClient::getParameter(const std::string& paramName, float& value)
 bool VoicemeeterClient::getInputLevel(int channel, float& level) {
     if (!m_impl->m_initialized) return false;
     
+    #ifdef _WIN32
+    long result = m_impl->VBVMR_GetLevel(0, channel, &level);
+    #else
     long result = VBVMR_GetLevel(0, channel, &level);
+    #endif
+    
     return (result == 0);
 }
 
@@ -329,7 +489,12 @@ bool VoicemeeterClient::getInputLevel(int channel, float& level) {
 bool VoicemeeterClient::getOutputLevel(int channel, float& level) {
     if (!m_impl->m_initialized) return false;
     
+    #ifdef _WIN32
+    long result = m_impl->VBVMR_GetLevel(3, channel, &level);
+    #else
     long result = VBVMR_GetLevel(3, channel, &level);
+    #endif
+    
     return (result == 0);
 }
 
