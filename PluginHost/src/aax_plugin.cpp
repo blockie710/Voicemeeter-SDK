@@ -5,139 +5,153 @@
 #include <memory>
 #include <string>
 
-#ifdef _WIN32
-#include <windows.h>
-#define DLL_HANDLE HMODULE
-#define LOAD_LIBRARY(path) LoadLibraryA(path)
-#define GET_PROC_ADDRESS(handle, proc) GetProcAddress(handle, proc)
-#define FREE_LIBRARY(handle) FreeLibrary(handle)
-#else
-#include <dlfcn.h>
-#define DLL_HANDLE void*
-#define LOAD_LIBRARY(path) dlopen(path, RTLD_LAZY)
-#define GET_PROC_ADDRESS(handle, proc) dlsym(handle, proc)
-#define FREE_LIBRARY(handle) dlclose(handle)
-#endif
+// Stub implementation for AAX plugins
+// Will be expanded with actual AAX SDK integration
 
-// AAXPlugin implementation
-AAXPlugin::AAXPlugin(const std::string& path)
-    : m_path(path), 
-      m_moduleHandle(nullptr),
-      m_pluginDefinition(nullptr),
-      m_controller(nullptr),
-      m_parameters(nullptr),
-      m_sampleRate(0.0),
-      m_blockSize(0),
-      m_isActive(false),
-      m_name("Unknown AAX Plugin"),
-      m_vendor("Unknown"),
-      m_version("1.0.0"),
-      m_numInputChannels(0),
-      m_numOutputChannels(0),
-      m_editorHandle(nullptr),
-      m_hasEditor(false) {
-    // Try to load the plugin
-    loadPlugin();
+AAXPluginScanner::AAXPluginScanner() {
+    std::cout << "AAX plugin scanner created" << std::endl;
+}
+
+AAXPluginScanner::~AAXPluginScanner() {
+    std::cout << "AAX plugin scanner destroyed" << std::endl;
+}
+
+std::vector<PluginDescription> AAXPluginScanner::scanDirectory(const std::string& directory) {
+    std::vector<PluginDescription> result;
+    std::cout << "Scanning for AAX plugins in: " << directory << std::endl;
+    
+    try {
+        if (!std::filesystem::exists(directory)) {
+            std::cerr << "Directory does not exist: " << directory << std::endl;
+            return result;
+        }
+        
+        for (const auto& entry : std::filesystem::recursive_directory_iterator(directory)) {
+            if (entry.is_regular_file() && (entry.path().extension() == ".aaxplugin" || 
+                                           (entry.is_directory() && entry.path().extension() == ".aaxplugin"))) {
+                std::cout << "Found potential AAX plugin: " << entry.path().string() << std::endl;
+                
+                PluginDescription desc;
+                desc.name = entry.path().stem().string();
+                desc.path = entry.path().string();
+                desc.format = PluginFormat::AAX;
+                desc.vendor = "Unknown";
+                desc.version = "1.0.0";
+                desc.uniqueId = "aax." + entry.path().stem().string();
+                desc.numInputs = 2;   // Default to stereo
+                desc.numOutputs = 2;  // Default to stereo
+                
+                result.push_back(desc);
+            }
+        }
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Error scanning for AAX plugins: " << e.what() << std::endl;
+    }
+    
+    std::cout << "Found " << result.size() << " AAX plugins" << std::endl;
+    return result;
+}
+
+std::shared_ptr<PluginInstance> AAXPluginScanner::loadPlugin(const std::string& path) {
+    std::cout << "Loading AAX plugin: " << path << std::endl;
+    
+    try {
+        if (!std::filesystem::exists(path)) {
+            std::cerr << "Plugin file does not exist: " << path << std::endl;
+            return nullptr;
+        }
+        
+        // Create the plugin instance (stub implementation)
+        auto plugin = std::make_shared<AAXPlugin>(path);
+        if (!plugin->initialize()) {
+            std::cerr << "Failed to initialize AAX plugin: " << path << std::endl;
+            return nullptr;
+        }
+        
+        return plugin;
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Error loading AAX plugin: " << e.what() << std::endl;
+        return nullptr;
+    }
+}
+
+// Placeholder implementation of Impl class for AAXPlugin
+class AAXPlugin::Impl {
+public:
+    // This would contain AAX SDK specific implementation details
+};
+
+AAXPlugin::AAXPlugin(const std::string& path) 
+    : m_path(path)
+    , m_name(std::filesystem::path(path).stem().string())
+    , m_vendor("Unknown")
+    , m_version("1.0.0")
+    , m_uniqueId("aax." + std::filesystem::path(path).stem().string())
+    , m_impl(std::make_unique<Impl>())
+{
+    std::cout << "AAXPlugin created: " << m_name << std::endl;
 }
 
 AAXPlugin::~AAXPlugin() {
-    // Clean up AAX resources
-    releaseResources();
-    
-    // Clean up interfaces
-    if (m_parameters) {
-        // In real code, would release the parameters interface
-        m_parameters = nullptr;
-    }
-    
-    if (m_controller) {
-        // In real code, would release the controller
-        m_controller = nullptr;
-    }
-    
-    if (m_pluginDefinition) {
-        // In real code, would release the plugin definition
-        m_pluginDefinition = nullptr;
-    }
-    
-    if (m_moduleHandle) {
-        FREE_LIBRARY((DLL_HANDLE)m_moduleHandle);
-        m_moduleHandle = nullptr;
-    }
+    std::cout << "AAXPlugin destroyed: " << m_name << std::endl;
 }
 
-bool AAXPlugin::loadPlugin() {
-    std::cout << "Loading AAX plugin: " << m_path << std::endl;
+bool AAXPlugin::initialize() {
+    std::cout << "Initializing AAX plugin: " << m_name << std::endl;
     
-    // Load the module (DLL)
-    m_moduleHandle = LOAD_LIBRARY(m_path.c_str());
+    // This is where we would load the AAX plugin using the AAX SDK
+    // For now, we just pretend it worked
     
-    if (!m_moduleHandle) {
-        std::cerr << "Failed to load AAX module: " << m_path << std::endl;
-        return false;
-    }
+    // Add some fake parameters
+    PluginParameter param1;
+    param1.name = "Gain";
+    param1.label = "dB";
+    param1.unit = "dB";
+    param1.minValue = -60.0f;
+    param1.maxValue = 12.0f;
+    param1.defaultValue = 0.0f;
+    param1.currentValue = 0.0f;
+    m_parameters.push_back(param1);
     
-    // In a real implementation, would call AAX-specific entry points
-    // to get plugin definition, controller, etc.
+    PluginParameter param2;
+    param2.name = "Bypass";
+    param2.minValue = 0.0f;
+    param2.maxValue = 1.0f;
+    param2.defaultValue = 0.0f;
+    param2.currentValue = 0.0f;
+    param2.isDiscrete = true;
+    param2.stepCount = 1;
+    m_parameters.push_back(param2);
     
-    // Initialize plugin components
-    bool success = initializePlugin();
-    if (!success) {
-        if (m_moduleHandle) {
-            FREE_LIBRARY((DLL_HANDLE)m_moduleHandle);
-            m_moduleHandle = nullptr;
+    m_isSuspended = false;
+    return true;
+}
+
+void AAXPlugin::process(float** inputs, float** outputs, int numInputs, int numOutputs, int numSamples) {
+    if (m_isSuspended) return;
+    
+    // Simple passthrough for now
+    for (int i = 0; i < numOutputs && i < numInputs; i++) {
+        if (inputs[i] && outputs[i]) {
+            for (int j = 0; j < numSamples; j++) {
+                outputs[i][j] = inputs[i][j];
+            }
         }
-        return false;
     }
-    
-    // Cache parameter information
-    cacheParameters();
-    
-    return true;
 }
 
-bool AAXPlugin::initializePlugin() {
-    std::cout << "Initializing AAX plugin..." << std::endl;
-    
-    // In a full implementation, this would:
-    // 1. Get the plugin description
-    // 2. Create the effect
-    // 3. Set up the controller
-    // 4. Get plugin information (name, vendor, etc.)
-    
-    // Simplified placeholder since we don't have the full AAX SDK
-    m_name = "AAX Plugin";
-    m_vendor = "Plugin Developer";
-    m_version = "1.0.0";
-    m_numInputChannels = 2;
-    m_numOutputChannels = 2;
-    m_hasEditor = true;
-    
-    return true;
+void AAXPlugin::suspend() {
+    std::cout << "Suspending AAX plugin: " << m_name << std::endl;
+    m_isSuspended = true;
 }
 
-void AAXPlugin::cacheParameters() {
-    // In a full implementation, this would:
-    // 1. Enumerate parameters from the controller
-    // 2. Store parameter info in the m_parameterCache map
-    // 3. Create name-to-index mapping for fast lookups
-    
-    // Add a placeholder parameter
-    PluginParameter param;
-    param.id = "gain";
-    param.name = "Gain";
-    param.type = ParameterType::FLOAT;
-    param.minValue = 0.0;
-    param.maxValue = 1.0;
-    param.defaultValue = 0.5;
-    param.currentValue = 0.5;
-    param.automatable = true;
-    
-    m_parameterCache[0] = param;
-    m_parameterNameToIndex["Gain"] = 0;
+void AAXPlugin::resume() {
+    std::cout << "Resuming AAX plugin: " << m_name << std::endl;
+    m_isSuspended = false;
 }
 
-// PluginInstance interface implementation
 std::string AAXPlugin::getName() const {
     return m_name;
 }
@@ -150,191 +164,74 @@ std::string AAXPlugin::getVersion() const {
     return m_version;
 }
 
-// Audio processing
-void AAXPlugin::prepareToPlay(double sampleRate, int maxSamplesPerBlock) {
-    m_sampleRate = sampleRate;
-    m_blockSize = maxSamplesPerBlock;
-    
-    // Resize internal buffers for processing
-    m_inputInterleavedBuffer.resize(maxSamplesPerBlock * m_numInputChannels);
-    m_outputInterleavedBuffer.resize(maxSamplesPerBlock * m_numOutputChannels);
-    
-    std::cout << "Preparing AAX plugin " << m_name << " for playback: " 
-              << sampleRate << " Hz, " << maxSamplesPerBlock << " samples" << std::endl;
+std::string AAXPlugin::getUniqueId() const {
+    return m_uniqueId;
 }
 
-void AAXPlugin::processBlock(float** inputBuffers, float** outputBuffers, int numInputs, int numOutputs, int numSamples) {
-    // In a real implementation with AAX, we would:
-    // 1. Convert from separate channel buffers to interleaved format
-    // 2. Process through the AAX plugin
-    // 3. Convert from interleaved back to separate channels
-    
-    // Simplified version that just copies inputs to outputs
-    for (int o = 0; o < numOutputs && o < m_numOutputChannels; ++o) {
-        if (o < numInputs && o < m_numInputChannels && inputBuffers[o] && outputBuffers[o]) {
-            // Copy input to output
-            std::copy(inputBuffers[o], inputBuffers[o] + numSamples, outputBuffers[o]);
-        } else if (outputBuffers[o]) {
-            // Clear output if no input
-            std::fill(outputBuffers[o], outputBuffers[o] + numSamples, 0.0f);
-        }
-    }
-}
-
-void AAXPlugin::releaseResources() {
-    // Free any allocated resources
-    m_inputInterleavedBuffer.clear();
-    m_outputInterleavedBuffer.clear();
-    m_isActive = false;
-}
-
-// Parameter handling
-int AAXPlugin::getNumParameters() const {
-    return static_cast<int>(m_parameterCache.size());
-}
-
-PluginParameter AAXPlugin::getParameter(int index) const {
-    auto it = m_parameterCache.find(index);
-    if (it != m_parameterCache.end()) {
-        return it->second;
-    }
-    
-    // Return empty parameter if not found
-    PluginParameter emptyParam;
-    emptyParam.id = "invalid";
-    emptyParam.name = "Invalid Parameter";
-    emptyParam.type = ParameterType::FLOAT;
-    emptyParam.minValue = 0.0;
-    emptyParam.maxValue = 1.0;
-    emptyParam.defaultValue = 0.0;
-    emptyParam.currentValue = 0.0;
-    return emptyParam;
-}
-
-void AAXPlugin::setParameterValue(int index, double value) {
-    auto it = m_parameterCache.find(index);
-    if (it != m_parameterCache.end()) {
-        it->second.currentValue = value;
-        
-        // In a full implementation, this would also update the AAX parameter
-        std::cout << "Setting parameter " << it->second.name << " to " << value << std::endl;
-    }
-}
-
-double AAXPlugin::getParameterValue(int index) const {
-    auto it = m_parameterCache.find(index);
-    if (it != m_parameterCache.end()) {
-        return it->second.currentValue;
-    }
-    return 0.0;
-}
-
-void AAXPlugin::setParameterValueByName(const std::string& name, double value) {
-    auto it = m_parameterNameToIndex.find(name);
-    if (it != m_parameterNameToIndex.end()) {
-        setParameterValue(it->second, value);
-    }
-}
-
-// Plugin I/O configuration
-int AAXPlugin::getNumInputChannels() const {
-    return m_numInputChannels;
-}
-
-int AAXPlugin::getNumOutputChannels() const {
-    return m_numOutputChannels;
+const char* AAXPlugin::getFormatName() const {
+    return "AAX";
 }
 
 bool AAXPlugin::hasEditor() const {
     return m_hasEditor;
 }
 
-void* AAXPlugin::openEditor(void* parentWindow) {
-    if (!m_hasEditor) {
-        return nullptr;
-    }
+bool AAXPlugin::showEditor(void* parent) {
+    if (!m_hasEditor) return false;
     
-    // In a full implementation, this would create the AAX editor
-    // and return a handle to it
-    std::cout << "Opening editor for " << m_name << std::endl;
+    std::cout << "Showing editor for AAX plugin: " << m_name << std::endl;
+    // This is where we would show the editor using the AAX SDK
     
-    // Placeholder
-    m_editorHandle = parentWindow;
-    return m_editorHandle;
+    return false;
 }
 
-void AAXPlugin::closeEditor() {
-    if (m_editorHandle) {
-        std::cout << "Closing editor for " << m_name << std::endl;
-        m_editorHandle = nullptr;
-    }
+void AAXPlugin::hideEditor() {
+    if (!m_hasEditor) return;
+    
+    std::cout << "Hiding editor for AAX plugin: " << m_name << std::endl;
+    // This is where we would hide the editor using the AAX SDK
 }
 
-// AAXPluginScanner implementation
-AAXPluginScanner::AAXPluginScanner() {
-    std::cout << "Creating AAX plugin scanner" << std::endl;
+int AAXPlugin::getParameterCount() const {
+    return static_cast<int>(m_parameters.size());
 }
 
-AAXPluginScanner::~AAXPluginScanner() {
+PluginParameter AAXPlugin::getParameter(int index) const {
+    if (index < 0 || index >= m_parameters.size()) {
+        PluginParameter empty;
+        empty.name = "Invalid";
+        return empty;
+    }
+    
+    return m_parameters[index];
 }
 
-std::vector<std::string> AAXPluginScanner::getDefaultAAXPaths() const {
-    std::vector<std::string> paths;
+bool AAXPlugin::setParameter(int index, float value) {
+    if (index < 0 || index >= m_parameters.size()) {
+        return false;
+    }
     
-    #ifdef _WIN32
-    paths.push_back("C:\\Program Files\\Common Files\\Avid\\Audio\\Plug-Ins");
-    #else
-    // macOS paths
-    paths.push_back("/Library/Application Support/Avid/Audio/Plug-Ins");
-    paths.push_back("~/Library/Application Support/Avid/Audio/Plug-Ins");
-    #endif
+    m_parameters[index].currentValue = value;
+    // This is where we would update the actual AAX parameter
     
-    return paths;
+    return true;
 }
 
-std::vector<std::string> AAXPluginScanner::scanDirectory(const std::string& directory, PluginFormat format) {
-    std::vector<std::string> results;
-    
-    // Check if format is correct
-    if (format != PluginFormat::AAX) {
-        return results;
-    }
-    
-    std::cout << "Scanning for AAX plugins in: " << directory << std::endl;
-    
-    try {
-        // Scan for .aaxplugin files or .aaxdll files in the directory and subdirectories
-        for (const auto& entry : std::filesystem::recursive_directory_iterator(directory)) {
-            if (entry.is_regular_file()) {
-                auto extension = entry.path().extension().string();
-                std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
-                
-                if (extension == ".aaxplugin" || extension == ".aaxdll" || extension == ".aax") {
-                    results.push_back(entry.path().string());
-                }
-            }
-        }
-    } catch (const std::exception& e) {
-        std::cerr << "Error scanning directory: " << e.what() << std::endl;
-    }
-    
-    std::cout << "Found " << results.size() << " AAX plugin(s)" << std::endl;
-    return results;
+int AAXPlugin::getPresetCount() const {
+    // No presets in stub implementation
+    return 0;
 }
 
-std::shared_ptr<PluginInstance> AAXPluginScanner::loadPlugin(const std::string& path, PluginFormat format) {
-    // Check if format is correct
-    if (format != PluginFormat::AAX) {
-        return nullptr;
-    }
-    
-    // Create and load an AAX plugin
-    auto plugin = std::make_shared<AAXPlugin>(path);
-    
-    // Return nullptr if loading failed (plugin would set its internal state)
-    if (!plugin->getName().empty() && plugin->getName() != "Unknown AAX Plugin") {
-        return plugin;
-    }
-    
-    return nullptr;
+std::string AAXPlugin::getPresetName(int index) const {
+    return "Preset " + std::to_string(index);
+}
+
+bool AAXPlugin::loadPreset(int index) {
+    std::cout << "Loading preset " << index << " for AAX plugin: " << m_name << std::endl;
+    return false;
+}
+
+bool AAXPlugin::savePreset(const std::string& name) {
+    std::cout << "Saving preset '" << name << "' for AAX plugin: " << m_name << std::endl;
+    return false;
 }
