@@ -2,7 +2,7 @@
  * plugin_interface.h
  * 
  * Plugin interface for Voicemeeter Plugin Host
- * Supports VST3, AAX, and AAU plugin formats
+ * Supports VST3, AAX, AAU, ARA, LUA, and REAPER plugin formats
  */
 
 #ifndef PLUGIN_INTERFACE_H
@@ -17,6 +17,9 @@ enum class PluginFormat {
     VST3,
     AAX,
     AAU,
+    ARA,    // New: Audio Random Access
+    LUA,    // New: LUA script plugins
+    REAPER, // New: REAPER extensions and JSFX
     UNKNOWN
 };
 
@@ -71,6 +74,14 @@ public:
     virtual bool hasEditor() const = 0;
     virtual void* openEditor(void* parentWindow) = 0;
     virtual void closeEditor() = 0;
+    
+    // Advanced features
+    virtual bool supportsFeature(const std::string& featureName) const { return false; }
+    virtual void* getExtension(const std::string& extensionId) { return nullptr; }
+    
+    // Enable/disable state - default implementation
+    virtual bool isEnabled() const { return true; }
+    virtual void setEnabled(bool enabled) {}
     
     // Get supported plugin formats
     static std::vector<PluginFormat> getSupportedFormats();
