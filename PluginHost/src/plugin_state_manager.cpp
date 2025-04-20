@@ -79,7 +79,14 @@ ChainState PluginStateManager::createStateFromPlugins(
             PluginState::ParameterState paramState;
             paramState.id = param.id;
             paramState.name = param.name;
-            paramState.value = plugin->getParameterValue(i);
+            
+            try {
+                paramState.value = plugin->getParameterValue(i);
+            } catch (const std::exception& e) {
+                g_logger.log(PluginLogger::Level::Warning, 
+                    "Failed to get parameter value for " + param.name + ": " + e.what());
+                paramState.value = param.defaultValue;
+            }
             
             pluginState.parameters.push_back(paramState);
         }

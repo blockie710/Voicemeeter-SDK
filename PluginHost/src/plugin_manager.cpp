@@ -128,19 +128,27 @@ struct PluginManager::Impl {
         if (!plugin && (extension == ".dll" || extension == ".so" || extension == ".dylib")) {
             // Try each supported format
             std::vector<PluginFormat> formatsToTry = {
+                PluginFormat::VST, 
                 PluginFormat::AAX, 
                 PluginFormat::ARA, 
                 PluginFormat::REAPER
             };
             
             for (auto tryFormat : formatsToTry) {
-                scanner = createPluginScanner(tryFormat);
-                if (!scanner) continue;
+                auto formatScanner = createPluginScanner(tryFormat);
+                if (!formatScanner) continue;
                 
-                plugin = scanner->loadPlugin(path, tryFormat);
-                if (plugin) {
-                    format = tryFormat;
-                    break;
+                try {
+                    plugin = formatScanner->loadPlugin(path, tryFormat);
+                    if (plugin) {
+                        format = tryFormat;
+                        break;
+                    }
+                } catch (const std::exception& e) {
+                    // Log error and continue with next format
+                    g_logger.log(PluginLogger::Level::Warning, 
+                        "Failed to load plugin as " + std::to_string(static_cast<int>(tryFormat)) + 
+                        ": " + e.what());
                 }
             }
         }

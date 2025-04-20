@@ -50,6 +50,12 @@ bool VMPluginHost::LoadPlugin(const std::string& path) {
     }
     catch (const std::exception& e) {
         std::cerr << "Error loading plugin: " << e.what() << std::endl;
+        m_plugin = nullptr;  // Ensure plugin pointer is nullified on error
+        return false;
+    }
+    catch (...) {
+        std::cerr << "Unknown error loading plugin" << std::endl;
+        m_plugin = nullptr;  // Ensure plugin pointer is nullified on error
         return false;
     }
 }
@@ -197,6 +203,10 @@ bool VMPluginHost::AddPlugin(const std::string& path) {
     }
     catch (const std::exception& e) {
         std::cerr << "Error adding plugin: " << e.what() << std::endl;
+        return false;
+    }
+    catch (...) {
+        std::cerr << "Unknown error adding plugin" << std::endl;
         return false;
     }
 }

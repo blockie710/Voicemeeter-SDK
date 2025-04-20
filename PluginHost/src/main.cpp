@@ -74,7 +74,7 @@ struct PluginChainItem {
 // Utility function to check if a string ends with a given suffix
 bool string_ends_with(const std::string& str, const std::string& suffix) {
     return str.size() >= suffix.size() && 
-            str.compare(str.size() - suffix.size(), suffix.size(), 0) == 0;
+           str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
 }
 
 // Helper to get user's home directory

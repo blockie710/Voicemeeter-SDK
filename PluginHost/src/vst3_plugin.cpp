@@ -140,6 +140,28 @@ bool VST3Plugin::initialize() {
     param2.stepCount = 1;
     m_parameters.push_back(param2);
     
+    // Add a frequency parameter
+    PluginParameter param3;
+    param3.name = "Frequency";
+    param3.label = "Hz";
+    param3.unit = "Hz";
+    param3.minValue = 20.0f;
+    param3.maxValue = 20000.0f;
+    param3.defaultValue = 1000.0f;
+    param3.currentValue = 1000.0f;
+    m_parameters.push_back(param3);
+
+    // Add a toggle parameter for high-quality mode
+    PluginParameter param4;
+    param4.name = "High Quality";
+    param4.minValue = 0.0f;
+    param4.maxValue = 1.0f;
+    param4.defaultValue = 0.0f;
+    param4.currentValue = 0.0f;
+    param4.isDiscrete = true;
+    param4.stepCount = 1;
+    m_parameters.push_back(param4);
+    
     m_isSuspended = false;
     return true;
 }

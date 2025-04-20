@@ -2,6 +2,7 @@
 #include <cstring>
 #include <algorithm>
 #include <cmath>
+#include <mutex>
 
 #ifdef _WIN32
 #include <immintrin.h>  // For AVX, AVX2
@@ -131,6 +132,9 @@ bool AudioProcessor::movePlugin(int fromIndex, int toIndex) {
         toIndex >= 0 && toIndex < m_plugins.size() && 
         fromIndex != toIndex) {
         
+        // Lock to prevent audio processing during rearrangement
+        std::lock_guard<std::mutex> lock(m_processMutex);
+        
         auto plugin = m_plugins[fromIndex];
         m_plugins.erase(m_plugins.begin() + fromIndex);
         
@@ -146,7 +150,17 @@ bool AudioProcessor::movePlugin(int fromIndex, int toIndex) {
 
 // Bypass all plugins
 void AudioProcessor::setBypassAll(bool bypass) {
+    std::lock_guard<std::mutex> lock(m_processMutex);
     m_bypassAll = bypass;
+    
+    // Optionally, we could also update individual plugins' bypass state
+    if (m_notifyPlugins) {
+        for (auto& plugin : m_plugins) {
+            if (plugin) {
+                plugin->setBypassed(bypass);
+            }
+        }
+    }
 }
 
 // Get the list of plugins
@@ -156,6 +170,7 @@ const std::vector<std::shared_ptr<PluginInstance>>& AudioProcessor::getPlugins()
 
 // Clear all plugins from the chain
 void AudioProcessor::clearPlugins() {
+    std::lock_guard<std::mutex> lock(m_processMutex);
     m_plugins.clear();
 }
 
