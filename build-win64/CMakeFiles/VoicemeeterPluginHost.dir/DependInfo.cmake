@@ -1,6 +1,7 @@
 # The set of languages for which implicit dependencies are needed:
 set(CMAKE_DEPENDS_LANGUAGES
   "CXX"
+  "RC"
   )
 # The set of files for implicit dependencies of each language:
 set(CMAKE_DEPENDS_CHECK_CXX
@@ -15,6 +16,14 @@ set(CMAKE_CXX_COMPILER_ID "GNU")
 
 # The include file search paths:
 set(CMAKE_CXX_TARGET_INCLUDE_PATH
+  "/workspaces/Voicemeeter-SDK/PluginHost/include"
+  )
+set(CMAKE_DEPENDS_CHECK_RC
+  "/workspaces/Voicemeeter-SDK/PluginHost/installer/windows/resources.rc" "/workspaces/Voicemeeter-SDK/build-win64/CMakeFiles/VoicemeeterPluginHost.dir/installer/windows/resources.rc.res"
+  )
+
+# The include file search paths:
+set(CMAKE_RC_TARGET_INCLUDE_PATH
   "/workspaces/Voicemeeter-SDK/PluginHost/include"
   )
 

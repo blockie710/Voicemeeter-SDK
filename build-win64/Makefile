@@ -191,6 +191,15 @@ VoicemeeterPluginHost/fast:
 	$(MAKE) -f CMakeFiles/VoicemeeterPluginHost.dir/build.make CMakeFiles/VoicemeeterPluginHost.dir/build
 .PHONY : VoicemeeterPluginHost/fast
 
+installer/windows/resources.res: installer/windows/resources.rc.res
+
+.PHONY : installer/windows/resources.res
+
+# target to build an object file
+installer/windows/resources.rc.res:
+	$(MAKE) -f CMakeFiles/VoicemeeterPluginHost.dir/build.make CMakeFiles/VoicemeeterPluginHost.dir/installer/windows/resources.rc.res
+.PHONY : installer/windows/resources.rc.res
+
 src/aax_plugin.obj: src/aax_plugin.cpp.obj
 
 .PHONY : src/aax_plugin.obj
@@ -368,6 +377,7 @@ help:
 	@echo "... rebuild_cache"
 	@echo "... package"
 	@echo "... VoicemeeterPluginHost"
+	@echo "... installer/windows/resources.res"
 	@echo "... src/aax_plugin.obj"
 	@echo "... src/aax_plugin.i"
 	@echo "... src/aax_plugin.s"

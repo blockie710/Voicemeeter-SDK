@@ -1,4 +1,5 @@
 file(REMOVE_RECURSE
+  "CMakeFiles/VoicemeeterPluginHost.dir/installer/windows/resources.rc.res"
   "CMakeFiles/VoicemeeterPluginHost.dir/src/aax_plugin.cpp.obj"
   "CMakeFiles/VoicemeeterPluginHost.dir/src/main.cpp.obj"
   "CMakeFiles/VoicemeeterPluginHost.dir/src/plugin_interface.cpp.obj"
@@ -11,6 +12,6 @@ file(REMOVE_RECURSE
 )
 
 # Per-language clean rules from dependency scanning.
-foreach(lang CXX)
+foreach(lang CXX RC)
   include(CMakeFiles/VoicemeeterPluginHost.dir/cmake_clean_${lang}.cmake OPTIONAL)
 endforeach()

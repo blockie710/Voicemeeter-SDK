@@ -90,6 +90,9 @@ public:
     virtual std::string getPresetName(int index) const = 0;
     virtual bool loadPreset(int index) = 0;
     virtual bool savePreset(const std::string& name) = 0;
+    
+    // Static method to get list of supported plugin formats
+    static std::vector<PluginFormat> getSupportedFormats();
 };
 
 // Base interface for plugin scanners
@@ -106,8 +109,5 @@ public:
 
 // Factory function to create plugin scanner for a format
 std::unique_ptr<PluginScanner> createPluginScanner(PluginFormat format);
-
-// Get list of supported plugin formats
-std::vector<PluginFormat> PluginInstance::getSupportedFormats();
 
 #endif // PLUGIN_INTERFACE_H

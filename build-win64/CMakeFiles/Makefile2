@@ -74,12 +74,12 @@ clean: CMakeFiles/VoicemeeterPluginHost.dir/clean
 CMakeFiles/VoicemeeterPluginHost.dir/all:
 	$(MAKE) -f CMakeFiles/VoicemeeterPluginHost.dir/build.make CMakeFiles/VoicemeeterPluginHost.dir/depend
 	$(MAKE) -f CMakeFiles/VoicemeeterPluginHost.dir/build.make CMakeFiles/VoicemeeterPluginHost.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/workspaces/Voicemeeter-SDK/build-win64/CMakeFiles --progress-num=1,2,3,4,5,6,7 "Built target VoicemeeterPluginHost"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/workspaces/Voicemeeter-SDK/build-win64/CMakeFiles --progress-num=1,2,3,4,5,6,7,8 "Built target VoicemeeterPluginHost"
 .PHONY : CMakeFiles/VoicemeeterPluginHost.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/VoicemeeterPluginHost.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /workspaces/Voicemeeter-SDK/build-win64/CMakeFiles 7
+	$(CMAKE_COMMAND) -E cmake_progress_start /workspaces/Voicemeeter-SDK/build-win64/CMakeFiles 8
 	$(MAKE) -f CMakeFiles/Makefile2 CMakeFiles/VoicemeeterPluginHost.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /workspaces/Voicemeeter-SDK/build-win64/CMakeFiles 0
 .PHONY : CMakeFiles/VoicemeeterPluginHost.dir/rule
