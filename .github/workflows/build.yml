@@ -1,0 +1,90 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config \
+            libasound2-dev libpulse-dev libjack-jackd2-dev \
+            libgtk-3-dev nlohmann-json3-dev
+      
+      - name: Configure CMake
+        run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=Release -GNinja
+      
+      - name: Build
+        run: cmake --build ${{github.workspace}}/build --config Release
+      
+      - name: Run tests
+        run: cd ${{github.workspace}}/build && ctest -C Release --output-on-failure
+      
+      - name: Create package
+        run: cd ${{github.workspace}}/build && cpack -G "TGZ"
+      
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: voicemeeter-sdk-linux
+          path: ${{github.workspace}}/build/Voicemeeter-SDK*.tar.gz
+  
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup MSVC
+        uses: microsoft/setup-msbuild@v1.1
+
+      - name: Configure CMake
+        run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=Release
+  
+      - name: Build
+        run: cmake --build ${{github.workspace}}/build --config Release
+      
+      - name: Create Windows installer
+        run: |
+          cd ${{github.workspace}}/build
+          cpack -G "ZIP;NSIS"
+      
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: voicemeeter-sdk-windows
+          path: |
+            ${{github.workspace}}/build/Voicemeeter-SDK*.zip
+            ${{github.workspace}}/build/Voicemeeter-SDK*.exe
+  
+  build-plugin-host:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build pkg-config \
+            libasound2-dev libpulse-dev libjack-jackd2-dev \
+            libgtk-3-dev nlohmann-json3-dev
+      
+      - name: Configure CMake
+        run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=Release -GNinja -DBUILD_PLUGIN_HOST=ON -DBUILD_EXAMPLE0=OFF -DBUILD_MATRIX8X8=OFF -DBUILD_VMR_OSD=OFF -DBUILD_VMR_PLAY=OFF -DBUILD_VMR_STREAMER=OFF
+      
+      - name: Build
+        run: cmake --build ${{github.workspace}}/build --config Release
+      
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: plugin-host-linux
+          path: ${{github.workspace}}/build/PluginHost/VoicemeeterPluginHost

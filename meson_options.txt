@@ -1,0 +1,26 @@
+option('build_plugin_host', type : 'boolean', value : true,
+       description : 'Build the Plugin Host component')
+
+option('build_example0', type : 'boolean', value : true,
+       description : 'Build Example0 client')
+
+option('build_matrix8x8', type : 'boolean', value : true,
+       description : 'Build Matrix 8x8 component')
+
+option('build_vmr_osd', type : 'boolean', value : true,
+       description : 'Build VMR OSD component')
+
+option('build_vmr_play', type : 'boolean', value : true,
+       description : 'Build VMR Play component')
+
+option('build_vmr_streamer', type : 'boolean', value : true,
+       description : 'Build VMR Streamer component')
+
+option('enable_tests', type : 'boolean', value : false,
+       description : 'Build and run tests')
+
+option('enable_simd', type : 'boolean', value : true,
+       description : 'Enable SIMD optimizations where available')
+
+option('enable_lto', type : 'boolean', value : false,
+       description : 'Enable Link Time Optimization')

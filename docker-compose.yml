@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  build-linux:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/workspace
+    command: bash -c "mkdir -p build-linux && cd build-linux && cmake .. -GNinja && ninja"
+    
+  build-windows:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/workspace
+    command: bash -c "mkdir -p build-win64 && cd build-win64 && cmake .. -GNinja -DCMAKE_TOOLCHAIN_FILE=../cmake/toolchains/x86_64-w64-mingw32.cmake && ninja"
+
+  package:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/workspace
+    command: bash -c "mkdir -p build-package && cd build-package && cmake .. -DCMAKE_BUILD_TYPE=Release && cmake --build . && cpack"
+    
+  build-plugin-host:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/workspace
+    command: bash -c "mkdir -p build-plugin && cd build-plugin && cmake .. -DBUILD_PLUGIN_HOST=ON -DBUILD_EXAMPLE0=OFF -DBUILD_MATRIX8X8=OFF -DBUILD_VMR_OSD=OFF -DBUILD_VMR_PLAY=OFF -DBUILD_VMR_STREAMER=OFF && cmake --build ."
