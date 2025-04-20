@@ -2,6 +2,9 @@
 #include "../include/vst3_plugin.h"
 #include "../include/aax_plugin.h"
 #include "../include/aau_plugin.h"
+#include "../include/ara_plugin.h"
+#include "../include/lua_plugin.h"
+#include "../include/reaper_plugin.h"
 
 #include <memory>
 #include <vector>
@@ -87,25 +90,31 @@ bool initPluginLogger(const std::string& logDir) {
 std::vector<PluginFormat> PluginInstance::getSupportedFormats() {
     std::vector<PluginFormat> formats;
     
-    // Check which plugin formats are supported in this build
-#ifdef WITH_VST3_SUPPORT
+    // VST3 is supported on all platforms
     formats.push_back(PluginFormat::VST3);
     g_logger.log(PluginLogger::Level::Info, "VST3 support enabled");
-#endif
-
-#ifdef WITH_AAX_SUPPORT
+    
+    // AAX is supported on Windows and macOS
     formats.push_back(PluginFormat::AAX);
     g_logger.log(PluginLogger::Level::Info, "AAX support enabled");
-#endif
-
+    
+    // AAU is macOS-specific
 #ifdef __APPLE__
     formats.push_back(PluginFormat::AAU);
-    g_logger.log(PluginLogger::Level::Info, "AAU support enabled");
+    g_logger.log(PluginLogger::Level::Info, "AAU support enabled (macOS only)");
 #endif
-
-    if (formats.empty()) {
-        g_logger.log(PluginLogger::Level::Warning, "No plugin formats are supported in this build");
-    }
+    
+    // ARA is cross-platform
+    formats.push_back(PluginFormat::ARA);
+    g_logger.log(PluginLogger::Level::Info, "ARA support enabled");
+    
+    // LUA scripts are cross-platform
+    formats.push_back(PluginFormat::LUA);
+    g_logger.log(PluginLogger::Level::Info, "LUA script plugin support enabled");
+    
+    // REAPER/JSFX plugins are cross-platform
+    formats.push_back(PluginFormat::REAPER);
+    g_logger.log(PluginLogger::Level::Info, "REAPER/JSFX plugin support enabled");
     
     return formats;
 }
@@ -115,12 +124,29 @@ std::unique_ptr<PluginScanner> createPluginScanner(PluginFormat format) {
     switch (format) {
         case PluginFormat::VST3:
             return std::make_unique<VST3PluginScanner>();
+            
         case PluginFormat::AAX:
             return std::make_unique<AAXPluginScanner>();
+            
         case PluginFormat::AAU:
-            return std::make_unique<AAUPluginScanner>();
+            #ifdef __APPLE__
+                return std::make_unique<AAUPluginScanner>();
+            #else
+                g_logger.log(PluginLogger::Level::Warning, "AAU plugins are not supported on this platform (macOS only)");
+                return nullptr;
+            #endif
+            
+        case PluginFormat::ARA:
+            return std::make_unique<ARAPluginScanner>();
+            
+        case PluginFormat::LUA:
+            return std::make_unique<LuaPluginScanner>();
+            
+        case PluginFormat::REAPER:
+            return std::make_unique<ReaperPluginScanner>();
+            
         default:
-            g_logger.log(PluginLogger::Level::Error, "Unsupported plugin format requested");
+            g_logger.log(PluginLogger::Level::Error, "Unknown plugin format requested");
             return nullptr;
     }
 }
