@@ -1,115 +1,111 @@
-cmake_minimum_required(VERSION 3.14)
-project(VoicemeeterPluginHost VERSION 1.0.0)
+cmake_minimum_required(VERSION 3.10)
+
+project(VoicemeeterPluginHost VERSION 1.0.0 LANGUAGES CXX)
 
 # Set C++ standard
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Platform-specific settings
-if(WIN32)
-    # Windows-specific settings
-    add_compile_definitions(_WIN32)
-    set(PLATFORM_LIBS "")
-elseif(APPLE)
-    # macOS-specific settings
-    add_compile_definitions(__APPLE__)
-    find_library(COREAUDIO_FRAMEWORK CoreAudio REQUIRED)
-    find_library(AUDIOUNIT_FRAMEWORK AudioUnit REQUIRED)
-    set(PLATFORM_LIBS ${COREAUDIO_FRAMEWORK} ${AUDIOUNIT_FRAMEWORK})
-else()
-    # Linux-specific settings (not fully supported yet)
-    message(WARNING "Linux support is limited. Proceeding with minimal configuration.")
-    set(PLATFORM_LIBS "")
-endif()
+# Output directories
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 
-# VST3 SDK path - this should be set by the user or detected automatically
-set(VST3_SDK_PATH "" CACHE PATH "Path to the VST3 SDK")
-if(VST3_SDK_PATH)
-    add_compile_definitions(WITH_VST3_SUPPORT)
-    include_directories(${VST3_SDK_PATH})
-    message(STATUS "VST3 support enabled with SDK at ${VST3_SDK_PATH}")
-else()
-    message(STATUS "VST3 SDK not found. Limited VST3 support will be available.")
-endif()
+# Include directories
+include_directories(include)
 
-# AAX SDK path - this should be set by the user or detected automatically
-set(AAX_SDK_PATH "" CACHE PATH "Path to the AAX SDK")
-if(AAX_SDK_PATH)
-    add_compile_definitions(WITH_AAX_SUPPORT)
-    include_directories(${AAX_SDK_PATH})
-    message(STATUS "AAX support enabled with SDK at ${AAX_SDK_PATH}")
-else()
-    message(STATUS "AAX SDK not found. Limited AAX support will be available.")
-endif()
-
-# Sources for the project
+# Source files
 set(SOURCES
     src/main.cpp
     src/plugin_interface.cpp
     src/voicemeeter_integration.cpp
     src/vst3_plugin.cpp
     src/aax_plugin.cpp
-    src/aau_plugin.cpp
 )
 
-# Headers for the project
-set(HEADERS
-    include/plugin_interface.h
-    include/voicemeeter_integration.h
-    include/vst3_plugin.h
-    include/aax_plugin.h
-    include/aau_plugin.h
-    ../VoicemeeterRemote.h
-)
-
-# Create executable
-add_executable(VoicemeeterPluginHost ${SOURCES} ${HEADERS})
-
-# Include directories
-target_include_directories(VoicemeeterPluginHost PRIVATE 
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/..
-)
-
-# Link libraries
+# Platform-specific sources and libraries
 if(WIN32)
-    target_link_libraries(VoicemeeterPluginHost PRIVATE ${PLATFORM_LIBS})
-    
-    # Add location of VoicemeeterRemote.dll
-    target_compile_definitions(VoicemeeterPluginHost PRIVATE 
-        -DVOICEMEETER_REMOTE_DLL_PATH="${CMAKE_CURRENT_SOURCE_DIR}/../VoicemeeterRemote64.dll"
+    list(APPEND SOURCES
+        src/win32_platform.cpp
     )
-    
-    # Set resource file for Windows
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/resources/resources.rc")
-        target_sources(VoicemeeterPluginHost PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/resources/resources.rc")
-    endif()
-else()
-    target_link_libraries(VoicemeeterPluginHost PRIVATE ${PLATFORM_LIBS})
-    
-    # For macOS, we need to link against the system frameworks
-    if(APPLE)
-        target_link_libraries(VoicemeeterPluginHost PRIVATE "-framework CoreAudio" "-framework AudioUnit")
-    endif()
+    set(PLATFORM_LIBS
+        winmm
+        comctl32
+        user32
+        gdi32
+        shell32
+        ole32
+        uuid
+    )
+elseif(APPLE)
+    list(APPEND SOURCES
+        src/macos_platform.cpp
+        src/aau_plugin.cpp
+    )
+    set(PLATFORM_LIBS
+        "-framework CoreFoundation"
+        "-framework CoreAudio"
+        "-framework AudioToolbox"
+        "-framework AudioUnit"
+        "-framework Cocoa"
+    )
+else() # Linux
+    list(APPEND SOURCES
+        src/linux_platform.cpp
+    )
+    set(PLATFORM_LIBS
+        dl
+        pthread
+        rt
+    )
 endif()
 
-# Installation rules
+# Define the executable
+add_executable(VoicemeeterPluginHost ${SOURCES})
+
+# Link libraries
+target_link_libraries(VoicemeeterPluginHost PRIVATE ${PLATFORM_LIBS})
+
+# Windows-specific settings
+if(WIN32)
+    # Set Windows subsystem
+    set_target_properties(VoicemeeterPluginHost PROPERTIES
+        WIN32_EXECUTABLE TRUE
+        LINK_FLAGS "/SUBSYSTEM:WINDOWS"
+    )
+    
+    # Add Windows resource files
+    set(RC_FILE "installer/windows/resources.rc")
+    target_sources(VoicemeeterPluginHost PRIVATE ${RC_FILE})
+    
+    # Add icon
+    set_property(SOURCE ${RC_FILE} APPEND PROPERTY OBJECT_DEPENDS
+        "installer/windows/icon.ico"
+    )
+endif()
+
+# Install target
 install(TARGETS VoicemeeterPluginHost
     RUNTIME DESTINATION bin
     LIBRARY DESTINATION lib
-    ARCHIVE DESTINATION lib/static
+    ARCHIVE DESTINATION lib
 )
 
-# Copy required DLLs on Windows
+# Create platform-specific installer
+include(CPack)
 if(WIN32)
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../VoicemeeterRemote64.dll")
-        install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../VoicemeeterRemote64.dll" DESTINATION bin)
-    endif()
+    set(CPACK_GENERATOR "NSIS")
+    set(CPACK_PACKAGE_NAME "Voicemeeter Plugin Host")
+    set(CPACK_PACKAGE_VENDOR "VB-Audio")
+    set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Plugin Host for Voicemeeter")
+    set(CPACK_PACKAGE_ICON "${CMAKE_CURRENT_SOURCE_DIR}/installer/windows/icon.ico")
+    set(CPACK_NSIS_MUI_ICON "${CMAKE_CURRENT_SOURCE_DIR}/installer/windows/icon.ico")
+    set(CPACK_NSIS_MUI_UNIICON "${CMAKE_CURRENT_SOURCE_DIR}/installer/windows/icon.ico")
+elseif(APPLE)
+    set(CPACK_GENERATOR "DragNDrop")
+    set(CPACK_PACKAGE_ICON "${CMAKE_CURRENT_SOURCE_DIR}/installer/macos/icon.icns")
+else()
+    set(CPACK_GENERATOR "DEB")
+    set(CPACK_DEBIAN_PACKAGE_MAINTAINER "VB-Audio <support@vb-audio.com>")
 endif()
-
-# Create a directory for log files
-install(DIRECTORY DESTINATION bin/logs)
-
-# Print status message
-message(STATUS "Configured ${PROJECT_NAME} ${PROJECT_VERSION}")
