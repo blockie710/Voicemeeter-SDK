@@ -167,7 +167,19 @@ bool AudioProcessor::prepareToPlay(double sampleRate, int maxSamplesPerBlock) {
     bool success = true;
     for (auto& plugin : m_plugins) {
         if (plugin) {
-            plugin->prepareToPlay(sampleRate, maxSamplesPerBlock);
+            try {
+                bool pluginSuccess = plugin->prepareToPlay(sampleRate, maxSamplesPerBlock);
+                if (!pluginSuccess) {
+                    g_logger.log(PluginLogger::Level::Warning, 
+                        "Plugin " + plugin->getName() + " failed to prepare for playback");
+                    success = false;
+                }
+            }
+            catch (const std::exception& e) {
+                g_logger.log(PluginLogger::Level::Error, 
+                    "Exception preparing plugin " + plugin->getName() + ": " + e.what());
+                success = false;
+            }
         }
     }
     return success;

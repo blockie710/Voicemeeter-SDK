@@ -14,6 +14,9 @@
 // Include the plugin host
 #include "../PluginHost/src/VMPluginHost.h"
 
+// Include shared test utilities
+#include "test_utils.h"
+
 // Helper function to generate test audio
 void generateTestAudio(float* buffer, int numSamples, float frequency, float sampleRate, float amplitude) {
     for (int i = 0; i < numSamples; i++) {
@@ -61,6 +64,10 @@ void testParameters(VMPluginHost* host) {
 
 // Test audio processing
 void testAudioProcessing(VMPluginHost* host, int bufferSize = 1024, int sampleRate = 48000) {
+    if (!host) {
+        throw std::invalid_argument("Host is null");
+    }
+    
     // Create audio buffers
     std::vector<float> inputL(bufferSize);
     std::vector<float> inputR(bufferSize);
@@ -68,33 +75,30 @@ void testAudioProcessing(VMPluginHost* host, int bufferSize = 1024, int sampleRa
     std::vector<float> outputR(bufferSize, 0.0f);
     
     // Generate test signals: 440Hz (A4) in left channel, 587Hz (D5) in right channel
-    generateTestAudio(inputL.data(), bufferSize, 440.0f, sampleRate, 0.5f);
-    generateTestAudio(inputR.data(), bufferSize, 587.33f, sampleRate, 0.5f);
+    test_utils::generateSineWave(inputL.data(), bufferSize, sampleRate, 440.0f, 0.5f);
+    test_utils::generateSineWave(inputR.data(), bufferSize, sampleRate, 587.33f, 0.5f);
     
     // Process the audio
     auto startTime = std::chrono::high_resolution_clock::now();
-    host->ProcessAudio(inputL.data(), inputR.data(), outputL.data(), outputR.data(), bufferSize, sampleRate);
-    auto endTime = std::chrono::high_resolution_clock::now();
     
+    try {
+        host->ProcessAudio(inputL.data(), inputR.data(), outputL.data(), outputR.data(), bufferSize, sampleRate);
+    } 
+    catch (const std::exception& e) {
+        std::cerr << "Error processing audio: " << e.what() << std::endl;
+        return;
+    }
+    
+    auto endTime = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(endTime - startTime);
     
     // Calculate some basic audio stats
-    float inRmsL = 0.0f, inRmsR = 0.0f;
-    float outRmsL = 0.0f, outRmsR = 0.0f;
+    float inRmsL = test_utils::calculateRMS(inputL.data(), bufferSize);
+    float inRmsR = test_utils::calculateRMS(inputR.data(), bufferSize);
+    float outRmsL = test_utils::calculateRMS(outputL.data(), bufferSize);
+    float outRmsR = test_utils::calculateRMS(outputR.data(), bufferSize);
     
-    for (int i = 0; i < bufferSize; i++) {
-        inRmsL += inputL[i] * inputL[i];
-        inRmsR += inputR[i] * inputR[i];
-        outRmsL += outputL[i] * outputL[i];
-        outRmsR += outputR[i] * outputR[i];
-    }
-    
-    inRmsL = std::sqrt(inRmsL / bufferSize);
-    inRmsR = std::sqrt(inRmsR / bufferSize);
-    outRmsL = std::sqrt(outRmsL / bufferSize);
-    outRmsR = std::sqrt(outRmsR / bufferSize);
-    
-    // Print results
+    // Output results
     std::cout << "=============================================" << std::endl;
     std::cout << "AUDIO PROCESSING TEST" << std::endl;
     std::cout << "=============================================" << std::endl;
@@ -103,6 +107,7 @@ void testAudioProcessing(VMPluginHost* host, int bufferSize = 1024, int sampleRa
     
     double bufferDuration = (bufferSize * 1000000.0) / sampleRate;
     double cpuUsage = (duration.count() / bufferDuration) * 100.0;
+    
     std::cout << "Estimated CPU: " << cpuUsage << "%" << std::endl;
     
     std::cout << "Input RMS: L=" << inRmsL << ", R=" << inRmsR << std::endl;
@@ -113,18 +118,30 @@ void testAudioProcessing(VMPluginHost* host, int bufferSize = 1024, int sampleRa
 
 // Scan directory for plugins
 std::vector<std::string> findPlugins(const std::string& directory, VMPluginHost* host) {
+    if (!host) {
+        throw std::invalid_argument("Host is null");
+    }
+    
     std::vector<std::string> pluginPaths;
+    std::cout << "Scanning directory: " << directory << std::endl;
     
     try {
-        for (const auto& entry : std::filesystem::directory_iterator(directory)) {
-            if (entry.is_regular_file()) {
-                std::string path = entry.path().string();
+        std::vector<std::string> extensions = {".vst3", ".component", ".vst", ".aaxplugin", ".jsfx", ".lua"};
+        auto files = test_utils::findPluginFiles(directory, extensions);
+        
+        std::cout << "Found " << files.size() << " potential plugin files" << std::endl;
+        
+        for (const auto& path : files) {
+            try {
                 // Try to load each file as a plugin
                 if (host->LoadPlugin(path)) {
-                    std::cout << "Found plugin: " << host->GetPluginName() << " at " << path << std::endl;
+                    std::cout << "Found plugin: " << host->GetPluginName() << " (" << path << ")" << std::endl;
                     pluginPaths.push_back(path);
                     host->UnloadPlugin(); // Unload so we can continue scanning
                 }
+            }
+            catch (const std::exception& e) {
+                std::cerr << "Error loading " << path << ": " << e.what() << std::endl;
             }
         }
     } catch (const std::exception& e) {

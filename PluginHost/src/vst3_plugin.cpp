@@ -22,30 +22,40 @@ std::vector<PluginDescription> VST3PluginScanner::scanDirectory(const std::strin
     
     try {
         if (!std::filesystem::exists(directory)) {
-            std::cerr << "Directory does not exist: " << directory << std::endl;
+            g_logger.log(PluginLogger::Level::Warning, "Directory does not exist: " + directory);
             return result;
         }
         
         for (const auto& entry : std::filesystem::recursive_directory_iterator(directory)) {
-            if (entry.is_regular_file() && entry.path().extension() == ".vst3") {
-                std::cout << "Found potential VST3 plugin: " << entry.path().string() << std::endl;
-                
-                PluginDescription desc;
-                desc.name = entry.path().stem().string();
-                desc.path = entry.path().string();
-                desc.format = PluginFormat::VST3;
-                desc.vendor = "Unknown";
-                desc.version = "1.0.0";
-                desc.uniqueId = "vst3." + entry.path().stem().string();
-                desc.numInputs = 2;   // Default to stereo
-                desc.numOutputs = 2;  // Default to stereo
-                
-                result.push_back(desc);
+            try {
+                if (entry.is_regular_file() && entry.path().extension() == ".vst3") {
+                    std::cout << "Found potential VST3 plugin: " << entry.path().string() << std::endl;
+                    
+                    PluginDescription desc;
+                    desc.name = entry.path().stem().string();
+                    desc.path = entry.path().string();
+                    desc.format = PluginFormat::VST3;
+                    desc.vendor = "Unknown";
+                    desc.version = "1.0.0";
+                    desc.uniqueId = "vst3." + entry.path().stem().string();
+                    desc.numInputs = 2;   // Default to stereo
+                    desc.numOutputs = 2;  // Default to stereo
+                    
+                    // Process each plugin in isolation to prevent one bad plugin
+                    // from affecting the entire scan process
+                    result.push_back(desc);
+                }
+            }
+            catch (const std::exception& e) {
+                g_logger.log(PluginLogger::Level::Warning, 
+                    "Error processing entry " + entry.path().string() + ": " + e.what());
+                // Continue with next entry
             }
         }
     }
     catch (const std::exception& e) {
-        std::cerr << "Error scanning for VST3 plugins: " << e.what() << std::endl;
+        g_logger.log(PluginLogger::Level::Error, 
+            "Error scanning directory " + directory + ": " + e.what());
     }
     
     std::cout << "Found " << result.size() << " VST3 plugins" << std::endl;

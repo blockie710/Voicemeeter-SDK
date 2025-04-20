@@ -4,10 +4,16 @@
 #include <memory>
 #include <chrono>
 #include <cmath>
+#include <vector>
+#include <cstdlib>
+#include <ctime>
 
 // Include the plugin host headers
 // Fix the include path
 #include "../PluginHost/src/VMPluginHost.h"
+
+// Include shared test utilities
+#include "test_utils.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -98,27 +104,29 @@ void testAudioProcessing(VMPluginHost* host) {
     const int sampleRate = 48000;
     const int bufferSize = 1024;
     
-    // Allocate buffers
-    float* inputL = new float[bufferSize];
-    float* inputR = new float[bufferSize];
-    float* outputL = new float[bufferSize];
-    float* outputR = new float[bufferSize];
+    // Use vectors instead of raw arrays for automatic memory management
+    std::vector<float> inputL(bufferSize);
+    std::vector<float> inputR(bufferSize);
+    std::vector<float> outputL(bufferSize, 0.0f);
+    std::vector<float> outputR(bufferSize, 0.0f);
     
     // Generate test signals
-    generateSineWave(inputL, bufferSize, sampleRate, 440.0f, 0.5f);  // A4 note
-    generateSineWave(inputR, bufferSize, sampleRate, 587.33f, 0.5f); // D5 note
-    
-    // Clear output buffers
-    memset(outputL, 0, bufferSize * sizeof(float));
-    memset(outputR, 0, bufferSize * sizeof(float));
+    test_utils::generateSineWave(inputL.data(), bufferSize, sampleRate, 440.0f, 0.5f);  // A4 note
+    test_utils::generateSineWave(inputR.data(), bufferSize, sampleRate, 587.33f, 0.5f); // D5 note
     
     // Process audio
     std::cout << "Processing " << bufferSize << " samples at " << sampleRate << "Hz" << std::endl;
     
     auto startTime = std::chrono::high_resolution_clock::now();
     
-    // Call the ProcessAudio method
-    host->ProcessAudio(inputL, inputR, outputL, outputR, bufferSize, sampleRate);
+    try {
+        // Call the ProcessAudio method
+        host->ProcessAudio(inputL.data(), inputR.data(), outputL.data(), outputR.data(), bufferSize, sampleRate);
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Error processing audio: " << e.what() << std::endl;
+        return;
+    }
     
     auto endTime = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>(endTime - startTime);
@@ -126,20 +134,10 @@ void testAudioProcessing(VMPluginHost* host) {
     std::cout << "Processing took " << duration.count() << " microseconds" << std::endl;
     
     // Calculate RMS of input and output to see if there's a difference
-    float inputRmsL = 0.0f, inputRmsR = 0.0f;
-    float outputRmsL = 0.0f, outputRmsR = 0.0f;
-    
-    for (int i = 0; i < bufferSize; i++) {
-        inputRmsL += inputL[i] * inputL[i];
-        inputRmsR += inputR[i] * inputR[i];
-        outputRmsL += outputL[i] * outputL[i];
-        outputRmsR += outputR[i] * outputR[i];
-    }
-    
-    inputRmsL = sqrt(inputRmsL / bufferSize);
-    inputRmsR = sqrt(inputRmsR / bufferSize);
-    outputRmsL = sqrt(outputRmsL / bufferSize);
-    outputRmsR = sqrt(outputRmsR / bufferSize);
+    float inputRmsL = test_utils::calculateRMS(inputL.data(), bufferSize);
+    float inputRmsR = test_utils::calculateRMS(inputR.data(), bufferSize);
+    float outputRmsL = test_utils::calculateRMS(outputL.data(), bufferSize);
+    float outputRmsR = test_utils::calculateRMS(outputR.data(), bufferSize);
     
     std::cout << "Input RMS: L=" << inputRmsL << ", R=" << inputRmsR << std::endl;
     std::cout << "Output RMS: L=" << outputRmsL << ", R=" << outputRmsR << std::endl;
@@ -151,57 +149,50 @@ void testAudioProcessing(VMPluginHost* host) {
         std::cout << "In(" << inputL[i] << "," << inputR[i] << ") -> ";
         std::cout << "Out(" << outputL[i] << "," << outputR[i] << ")" << std::endl;
     }
-    
-    // Clean up
-    delete[] inputL;
-    delete[] inputR;
-    delete[] outputL;
-    delete[] outputR;
 }
 
 // Performance test
 void testPerformance(VMPluginHost* host) {
-    std::cout << "\n=== Performance Test ===" << std::endl;
+    std::cout << "\n=== Testing Plugin Performance ===" << std::endl;
     
-    // Create test audio buffers
+    // Use larger buffer for performance testing
     const int sampleRate = 48000;
-    const int bufferSize = 1024;
-    const int numIterations = 100;
+    const int bufferSize = 4096;  // Larger buffer for performance test
+    const int iterations = 100;   // Number of iterations for better measurement
     
-    // Allocate buffers
-    float* inputL = new float[bufferSize];
-    float* inputR = new float[bufferSize];
-    float* outputL = new float[bufferSize];
-    float* outputR = new float[bufferSize];
+    // Use vectors for automatic memory management
+    std::vector<float> inputL(bufferSize);
+    std::vector<float> inputR(bufferSize);
+    std::vector<float> outputL(bufferSize);
+    std::vector<float> outputR(bufferSize);
     
-    // Generate test signals
-    generateSineWave(inputL, bufferSize, sampleRate, 440.0f, 0.5f);
-    generateSineWave(inputR, bufferSize, sampleRate, 587.33f, 0.5f);
+    // Generate test signals - white noise for more realistic load
+    test_utils::generateWhiteNoise(inputL.data(), bufferSize, 0.5f);
+    test_utils::generateWhiteNoise(inputR.data(), bufferSize, 0.5f);
     
-    // Process audio multiple times to measure performance
+    // Run multiple iterations for more accurate timing
     auto startTime = std::chrono::high_resolution_clock::now();
     
-    for (int i = 0; i < numIterations; i++) {
-        host->ProcessAudio(inputL, inputR, outputL, outputR, bufferSize, sampleRate);
+    try {
+        for (int i = 0; i < iterations; i++) {
+            host->ProcessAudio(inputL.data(), inputR.data(), outputL.data(), outputR.data(), bufferSize, sampleRate);
+        }
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Error during performance test: " << e.what() << std::endl;
+        return;
     }
     
     auto endTime = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(endTime - startTime);
+    auto totalDuration = std::chrono::duration_cast<std::chrono::microseconds>(endTime - startTime);
     
-    double avgTimePerBuffer = duration.count() / (double)numIterations;
-    double bufferDuration = (bufferSize * 1000000.0) / sampleRate; // In microseconds
-    double cpuUsage = (avgTimePerBuffer / bufferDuration) * 100.0;
+    double avgDuration = totalDuration.count() / static_cast<double>(iterations);
+    std::cout << "Average processing time: " << avgDuration << " μs for " << bufferSize << " samples" << std::endl;
     
-    std::cout << "Processed " << numIterations << " buffers in " << duration.count() << " microseconds" << std::endl;
-    std::cout << "Average processing time: " << avgTimePerBuffer << " μs per buffer" << std::endl;
-    std::cout << "Each buffer represents " << bufferDuration << " μs of audio" << std::endl;
+    double bufferDuration = (bufferSize * 1000000.0) / sampleRate;
+    double cpuUsage = (avgDuration / bufferDuration) * 100.0;
+    
     std::cout << "Estimated CPU usage: " << cpuUsage << "%" << std::endl;
-    
-    // Clean up
-    delete[] inputL;
-    delete[] inputR;
-    delete[] outputL;
-    delete[] outputR;
 }
 
 int main(int argc, char* argv[]) {

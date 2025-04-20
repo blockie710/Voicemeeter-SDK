@@ -407,17 +407,22 @@ void PluginManager::scanDirectory(const std::string& directory, bool recursive, 
     m_impl->scanProgress = 0.0f;
     
     auto scanFunc = [this, directory, recursive]() {
-        if (m_impl->progressCallback) {
-            m_impl->progressCallback(0.0f, directory);
+        try {
+            if (m_impl->progressCallback) {
+                m_impl->progressCallback(0.0f, directory);
+            }
+            
+            // Scan the directory
+            m_impl->scanDirectoryInternal(directory, recursive, this);
+            
+            // Update final progress
+            m_impl->scanProgress = 1.0f;
+            if (m_impl->progressCallback) {
+                m_impl->progressCallback(1.0f, "Scan complete");
+            }
         }
-        
-        // Scan the directory
-        m_impl->scanDirectoryInternal(directory, recursive, this);
-        
-        // Update final progress
-        m_impl->scanProgress = 1.0f;
-        if (m_impl->progressCallback) {
-            m_impl->progressCallback(1.0f, "Scan complete");
+        catch (const std::exception& e) {
+            g_logger.log(PluginLogger::Level::Error, "Exception during plugin scan: " + std::string(e.what()));
         }
         
         m_impl->scanning = false;
@@ -446,7 +451,16 @@ float PluginManager::getScanningProgress() const {
 }
 
 void PluginManager::cancelScanning() {
-    m_impl->scanning = false;
+    std::lock_guard<std::mutex> lock(m_impl->pluginsMutex);
+    
+    if (m_impl->scanning) {
+        m_impl->scanning = false;
+        
+        // Only join if the thread is joinable to prevent issues
+        if (m_impl->scanThread.joinable()) {
+            m_impl->scanThread.join();
+        }
+    }
 }
 
 void PluginManager::setScanProgressCallback(ScanProgressCallback callback) {
