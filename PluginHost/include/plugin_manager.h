@@ -11,6 +11,7 @@
 #include <thread>
 #include <mutex>
 #include <atomic>
+#include <chrono>
 
 /**
  * PluginManager - Handles plugin discovery, sorting, and filtering
@@ -38,12 +39,13 @@ public:
         bool hasEditor;             // Whether the plugin has a UI
         bool favorite;              // User marked as favorite
         int userRating;             // User rating (0-5)
-        time_t lastUsed;            // When the plugin was last used
+        std::chrono::system_clock::time_point lastUsed; // When the plugin was last used
         int useCount;               // How many times the plugin was used
 
         // Constructors
         PluginInfo() : format(PluginFormat::UNKNOWN), inputChannels(0), outputChannels(0),
-                      hasEditor(false), favorite(false), userRating(0), lastUsed(0), useCount(0) {}
+                      hasEditor(false), favorite(false), userRating(0),
+                      lastUsed(std::chrono::system_clock::now()), useCount(0) {}
         
         // Create from existing plugin instance
         PluginInfo(const std::shared_ptr<PluginInstance>& plugin);
@@ -92,7 +94,14 @@ public:
 
     // Constructor will set up platform-specific default paths
     PluginManager();
-    ~PluginManager();
+    // Virtual destructor for proper cleanup in derived classes
+    virtual ~PluginManager();
+
+    // Copy/move semantics
+    PluginManager(const PluginManager&) = delete;
+    PluginManager& operator=(const PluginManager&) = delete;
+    PluginManager(PluginManager&&) noexcept = default;
+    PluginManager& operator=(PluginManager&&) noexcept = default;
 
     // Path management for plugin scanning
     void addPluginPath(const std::string& path);
@@ -141,6 +150,11 @@ public:
     // Events
     using PluginsChangedCallback = std::function<void()>;
     void setPluginsChangedCallback(PluginsChangedCallback callback);
+
+protected:
+    // Platform-specific implementations can override these methods
+    virtual std::vector<std::string> getDefaultPluginPaths() const;
+    virtual bool isValidPluginFile(const std::string& path) const;
 
 private:
     // Internal implementation
