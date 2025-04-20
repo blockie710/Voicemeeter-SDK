@@ -7,6 +7,8 @@
 #include <thread>
 #include <chrono>
 #include <map>
+#include <mutex>              // Explicitly include mutex
+#include <condition_variable> // Explicitly include condition_variable
 
 // Include our header files
 #include "../include/plugin_interface.h"

@@ -6,7 +6,3 @@
 
 #IncludeRegexTransform: 
 
-/workspaces/Voicemeeter-SDK/PluginHost/installer/windows/resources.rc
-windows.h
--
-
