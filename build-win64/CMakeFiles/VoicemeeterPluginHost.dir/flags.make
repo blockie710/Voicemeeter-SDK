@@ -3,7 +3,7 @@
 
 # compile CXX with /usr/bin/x86_64-w64-mingw32-g++
 # compile RC with x86_64-w64-mingw32-windres
-CXX_FLAGS =  -static-libgcc -static-libstdc++ -std=c++17 -O3 -DNDEBUG   -std=c++17
+CXX_FLAGS =  -static-libgcc -static-libstdc++ -std=c++17 -pthread -O3 -DNDEBUG   -std=c++17
 
 CXX_DEFINES = 
 
