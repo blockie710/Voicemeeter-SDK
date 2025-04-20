@@ -1,9 +1,13 @@
 #include "../include/vst3_plugin.h"
+#include "../include/plugin_logger.h"
 #include <iostream>
 #include <filesystem>
 #include <algorithm>
 #include <memory>
 #include <string>
+
+// Global logger instance
+extern PluginLogger g_logger;
 
 // Stub implementation for VST3 plugins
 // Will be expanded with actual VST3 SDK integration
