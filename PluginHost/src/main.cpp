@@ -35,6 +35,7 @@ struct PluginChainItem {
 // Platform-specific includes for window handling
 #ifdef _WIN32
 #include <windows.h>
+#include <commctrl.h>
 #endif
 
 // Defines for window creation
@@ -55,6 +56,32 @@ struct PluginChainItem {
 #define ID_BTN_SAVE_CHAIN    1006
 #define ID_BTN_LOAD_CHAIN    1007
 #define ID_LST_PLUGINS       1008
+#define ID_GRP_PLUGINS       1009
+#define ID_GRP_CONTROLS      1010
+#define ID_GRP_PARAMETERS    1011
+#define ID_BTN_EDIT_PLUGIN   1012
+#define ID_SLD_PARAMETER     1013
+#define ID_LBL_PARAMETER     1014
+#define ID_CMB_INPUT_CHANNEL 1015
+#define ID_CMB_OUTPUT_CHANNEL 1016
+#define ID_CHK_ENABLE_PLUGIN 1017
+#define ID_BTN_REFRESH_SCAN  1018
+#define ID_STATUS_BAR        1019
+#define ID_TAB_CONTROL       1020
+#define ID_BTN_SHOW_EDITOR   1021
+
+#define ID_GRP_PLUGINS       1100
+#define ID_GRP_CONTROLS      1101
+#define ID_GRP_PARAMETERS    1102
+#define ID_LST_PARAMETERS    1103
+#define ID_SLIDER_PARAMETER  1104
+#define ID_LBL_PARAMETER     1105
+#define ID_BTN_REFRESH_SCAN  1106
+#define ID_CHK_ENABLE_PLUGIN 1107
+#define ID_BTN_SHOW_EDITOR   1108
+#define ID_CMB_INPUT_CHANNEL 1109
+#define ID_CMB_OUTPUT_CHANNEL 1110
+#define ID_STATUS_BAR        1111
 
 // UI controls
 HWND g_hwndPluginList = NULL;
@@ -65,15 +92,28 @@ HWND g_hwndMoveDownBtn = NULL;
 HWND g_hwndBypassBtn = NULL;
 HWND g_hwndSaveBtn = NULL;
 HWND g_hwndLoadBtn = NULL;
+HWND g_hwndRefreshScanBtn = NULL;
+HWND g_hwndEnablePluginCheck = NULL;
+HWND g_hwndShowEditorBtn = NULL;
 
-// UI functions
-void CreateControls(HWND hwndParent);
-void RefreshPluginListUI();
-void MovePluginUp(int index);
-void MovePluginDown(int index);
-void RemovePlugin(int index);
-void TogglePluginEnabled(int index);
-void HandlePluginListDblClick(int index);
+// Advanced UI elements
+HWND g_hwndPluginsGroup = NULL;
+HWND g_hwndControlsGroup = NULL;
+HWND g_hwndParametersGroup = NULL;
+HWND g_hwndParameterList = NULL;
+HWND g_hwndParameterSlider = NULL;
+HWND g_hwndParameterLabel = NULL;
+HWND g_hwndInputChannelCombo = NULL;
+HWND g_hwndOutputChannelCombo = NULL;
+HWND g_hwndStatusBar = NULL;
+
+// UI fonts
+HFONT g_hFont = NULL;
+HFONT g_hBoldFont = NULL;
+
+// Current selected plugin
+int g_selectedPluginIndex = -1;
+int g_selectedParameterIndex = -1;
 #endif
 
 // Global state
@@ -105,6 +145,15 @@ void displayHelp();
 
 #ifdef _WIN32
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+void CreateControls(HWND hwndParent);
+HFONT CreateStyledFont(bool bold, int height);
+void UpdateParameterControls();
+void UpdateParameterSlider(int parameterIndex);
+void UpdatePluginControls();
+void RefreshPluginListUI();
+void MovePluginUp();
+void MovePluginDown();
+void RemoveSelectedPlugin();
 #endif
 
 // Main entry point
@@ -477,139 +526,394 @@ void displayHelp() {
 }
 
 #ifdef _WIN32
-// Windows message procedure
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-    switch (uMsg) {
-        case WM_CLOSE:
-            DestroyWindow(hwnd);
-            return 0;
-
-        case WM_DESTROY:
-            g_running = false;
-            PostQuitMessage(0);
-            return 0;
-
-        case WM_PLUGIN_UPDATED:
-            // Handle plugin updates (e.g., chain reordering)
-            reorderPluginChain();
-            return 0;
-
-        case WM_COMMAND:
-            switch (LOWORD(wParam)) {
-                case ID_BTN_ADD_PLUGIN:
-                    // Handle add plugin button click
-                    break;
-                case ID_BTN_REMOVE_PLUGIN:
-                    // Handle remove plugin button click
-                    break;
-                case ID_BTN_MOVE_UP:
-                    // Handle move up button click
-                    break;
-                case ID_BTN_MOVE_DOWN:
-                    // Handle move down button click
-                    break;
-                case ID_BTN_BYPASS_ALL:
-                    g_bypassAllPlugins = !g_bypassAllPlugins;
-                    break;
-                case ID_BTN_SAVE_CHAIN:
-                    // Handle save chain button click
-                    break;
-                case ID_BTN_LOAD_CHAIN:
-                    // Handle load chain button click
-                    break;
-            }
-            return 0;
-
-        default:
-            return DefWindowProc(hwnd, uMsg, wParam, lParam);
-    }
-}
-
-// Create UI controls
+// Create UI controls with an advanced layout
 void CreateControls(HWND hwndParent) {
+    // Create fonts for UI elements
+    g_hFont = CreateStyledFont(false, 16);
+    g_hBoldFont = CreateStyledFont(true, 16);
+
+    // Get client area dimensions
+    RECT rcClient;
+    GetClientRect(hwndParent, &rcClient);
+    int width = rcClient.right - rcClient.left;
+    int height = rcClient.bottom - rcClient.top;
+
+    // Create status bar at the bottom
+    g_hwndStatusBar = CreateWindowEx(
+        0, STATUSCLASSNAME, NULL,
+        WS_CHILD | WS_VISIBLE | SBARS_SIZEGRIP,
+        0, 0, 0, 0, // Size and position will be set by system
+        hwndParent, (HMENU)ID_STATUS_BAR, GetModuleHandle(NULL), NULL);
+    
+    // Update the status bar immediately
+    SendMessage(g_hwndStatusBar, SB_SETTEXT, 0, (LPARAM)"Ready");
+    
+    // Create group boxes to organize controls better
+    g_hwndPluginsGroup = CreateWindowEx(
+        0, "BUTTON", "Plugins",
+        WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
+        10, 10, 350, height - 80, 
+        hwndParent, (HMENU)ID_GRP_PLUGINS, GetModuleHandle(NULL), NULL);
+    SendMessage(g_hwndPluginsGroup, WM_SETFONT, (WPARAM)g_hBoldFont, TRUE);
+
+    g_hwndControlsGroup = CreateWindowEx(
+        0, "BUTTON", "Controls",
+        WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
+        370, 10, 200, height - 80, 
+        hwndParent, (HMENU)ID_GRP_CONTROLS, GetModuleHandle(NULL), NULL);
+    SendMessage(g_hwndControlsGroup, WM_SETFONT, (WPARAM)g_hBoldFont, TRUE);
+
+    g_hwndParametersGroup = CreateWindowEx(
+        0, "BUTTON", "Parameters",
+        WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
+        580, 10, width - 590, height - 80, 
+        hwndParent, (HMENU)ID_GRP_PARAMETERS, GetModuleHandle(NULL), NULL);
+    SendMessage(g_hwndParametersGroup, WM_SETFONT, (WPARAM)g_hBoldFont, TRUE);
+
+    // Create plugins list with custom drawing for status indicators
     g_hwndPluginList = CreateWindowEx(
         WS_EX_CLIENTEDGE, "LISTBOX", NULL,
-        WS_CHILD | WS_VISIBLE | LBS_NOTIFY,
-        10, 10, 300, 400, hwndParent, (HMENU)ID_LST_PLUGINS, GetModuleHandle(NULL), NULL);
+        WS_CHILD | WS_VISIBLE | LBS_NOTIFY | WS_VSCROLL | LBS_OWNERDRAWFIXED,
+        20, 30, 330, height - 120, 
+        g_hwndPluginsGroup, (HMENU)ID_LST_PLUGINS, GetModuleHandle(NULL), NULL);
+    SendMessage(g_hwndPluginList, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+
+    // Create parameter list
+    g_hwndParameterList = CreateWindowEx(
+        WS_EX_CLIENTEDGE, "LISTBOX", NULL,
+        WS_CHILD | WS_VISIBLE | LBS_NOTIFY | WS_VSCROLL,
+        590, 30, width - 610, 150, 
+        g_hwndParametersGroup, (HMENU)ID_LST_PARAMETERS, GetModuleHandle(NULL), NULL);
+    SendMessage(g_hwndParameterList, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+
+    // Create parameter control elements
+    g_hwndParameterLabel = CreateWindowEx(
+        0, "STATIC", "No Parameter Selected",
+        WS_CHILD | WS_VISIBLE | SS_LEFT,
+        590, 190, width - 610, 20, 
+        g_hwndParametersGroup, (HMENU)ID_LBL_PARAMETER, GetModuleHandle(NULL), NULL);
+    SendMessage(g_hwndParameterLabel, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+
+    g_hwndParameterSlider = CreateWindowEx(
+        0, TRACKBAR_CLASS, NULL,
+        WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_AUTOTICKS,
+        590, 220, width - 610, 30, 
+        g_hwndParametersGroup, (HMENU)ID_SLIDER_PARAMETER, GetModuleHandle(NULL), NULL);
+    SendMessage(g_hwndParameterSlider, TBM_SETRANGE, TRUE, MAKELPARAM(0, 100));
+
+    // Input/Output Channel selection
+    CreateWindowEx(
+        0, "STATIC", "Input Channel:",
+        WS_CHILD | WS_VISIBLE,
+        590, 270, 100, 20, 
+        g_hwndParametersGroup, (HMENU)-1, GetModuleHandle(NULL), NULL);
+    SendMessage(GetDlgItem(g_hwndParametersGroup, -1), WM_SETFONT, (WPARAM)g_hFont, TRUE);
+
+    g_hwndInputChannelCombo = CreateWindowEx(
+        0, "COMBOBOX", NULL,
+        WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
+        700, 270, 150, 200, 
+        g_hwndParametersGroup, (HMENU)ID_CMB_INPUT_CHANNEL, GetModuleHandle(NULL), NULL);
+    SendMessage(g_hwndInputChannelCombo, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+    SendMessage(g_hwndInputChannelCombo, CB_ADDSTRING, 0, (LPARAM)"All Channels");
+    for (int i = 1; i <= 8; i++) {
+        char buffer[20];
+        sprintf(buffer, "Channel %d", i);
+        SendMessage(g_hwndInputChannelCombo, CB_ADDSTRING, 0, (LPARAM)buffer);
+    }
+    SendMessage(g_hwndInputChannelCombo, CB_SETCURSEL, 0, 0);
+
+    CreateWindowEx(
+        0, "STATIC", "Output Channel:",
+        WS_CHILD | WS_VISIBLE,
+        590, 310, 100, 20, 
+        g_hwndParametersGroup, (HMENU)-1, GetModuleHandle(NULL), NULL);
+    SendMessage(GetDlgItem(g_hwndParametersGroup, -1), WM_SETFONT, (WPARAM)g_hFont, TRUE);
+
+    g_hwndOutputChannelCombo = CreateWindowEx(
+        0, "COMBOBOX", NULL,
+        WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
+        700, 310, 150, 200, 
+        g_hwndParametersGroup, (HMENU)ID_CMB_OUTPUT_CHANNEL, GetModuleHandle(NULL), NULL);
+    SendMessage(g_hwndOutputChannelCombo, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+    SendMessage(g_hwndOutputChannelCombo, CB_ADDSTRING, 0, (LPARAM)"All Channels");
+    for (int i = 1; i <= 8; i++) {
+        char buffer[20];
+        sprintf(buffer, "Channel %d", i);
+        SendMessage(g_hwndOutputChannelCombo, CB_ADDSTRING, 0, (LPARAM)buffer);
+    }
+    SendMessage(g_hwndOutputChannelCombo, CB_SETCURSEL, 0, 0);
+
+    // Control buttons in the controls group
+    int btnWidth = 180;
+    int btnHeight = 30;
+    int btnX = 380;
+    int btnY = 40;
+    int btnSpacing = 40;
 
     g_hwndAddBtn = CreateWindow(
-        "BUTTON", "Add Plugin",
-        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-        320, 10, 100, 30, hwndParent, (HMENU)ID_BTN_ADD_PLUGIN, GetModuleHandle(NULL), NULL);
+        "BUTTON", "Add Plugin...",
+        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
+        btnX, btnY, btnWidth, btnHeight, 
+        g_hwndControlsGroup, (HMENU)ID_BTN_ADD_PLUGIN, GetModuleHandle(NULL), NULL);
+    SendMessage(g_hwndAddBtn, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
     g_hwndRemoveBtn = CreateWindow(
         "BUTTON", "Remove Plugin",
-        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-        320, 50, 100, 30, hwndParent, (HMENU)ID_BTN_REMOVE_PLUGIN, GetModuleHandle(NULL), NULL);
+        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
+        btnX, btnY += btnSpacing, btnWidth, btnHeight, 
+        g_hwndControlsGroup, (HMENU)ID_BTN_REMOVE_PLUGIN, GetModuleHandle(NULL), NULL);
+    SendMessage(g_hwndRemoveBtn, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
     g_hwndMoveUpBtn = CreateWindow(
         "BUTTON", "Move Up",
-        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-        320, 90, 100, 30, hwndParent, (HMENU)ID_BTN_MOVE_UP, GetModuleHandle(NULL), NULL);
+        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
+        btnX, btnY += btnSpacing, btnWidth, btnHeight, 
+        g_hwndControlsGroup, (HMENU)ID_BTN_MOVE_UP, GetModuleHandle(NULL), NULL);
+    SendMessage(g_hwndMoveUpBtn, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
     g_hwndMoveDownBtn = CreateWindow(
         "BUTTON", "Move Down",
-        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-        320, 130, 100, 30, hwndParent, (HMENU)ID_BTN_MOVE_DOWN, GetModuleHandle(NULL), NULL);
+        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
+        btnX, btnY += btnSpacing, btnWidth, btnHeight, 
+        g_hwndControlsGroup, (HMENU)ID_BTN_MOVE_DOWN, GetModuleHandle(NULL), NULL);
+    SendMessage(g_hwndMoveDownBtn, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
     g_hwndBypassBtn = CreateWindow(
-        "BUTTON", "Bypass All",
-        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-        320, 170, 100, 30, hwndParent, (HMENU)ID_BTN_BYPASS_ALL, GetModuleHandle(NULL), NULL);
+        "BUTTON", "Bypass All Effects",
+        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX,
+        btnX, btnY += btnSpacing, btnWidth, btnHeight, 
+        g_hwndControlsGroup, (HMENU)ID_BTN_BYPASS_ALL, GetModuleHandle(NULL), NULL);
+    SendMessage(g_hwndBypassBtn, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+
+    g_hwndEnablePluginCheck = CreateWindow(
+        "BUTTON", "Enable Selected Plugin",
+        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX,
+        btnX, btnY += btnSpacing, btnWidth, btnHeight, 
+        g_hwndControlsGroup, (HMENU)ID_CHK_ENABLE_PLUGIN, GetModuleHandle(NULL), NULL);
+    SendMessage(g_hwndEnablePluginCheck, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+    EnableWindow(g_hwndEnablePluginCheck, FALSE); // Disabled until a plugin is selected
+
+    g_hwndShowEditorBtn = CreateWindow(
+        "BUTTON", "Show Plugin Editor",
+        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
+        btnX, btnY += btnSpacing, btnWidth, btnHeight, 
+        g_hwndControlsGroup, (HMENU)ID_BTN_SHOW_EDITOR, GetModuleHandle(NULL), NULL);
+    SendMessage(g_hwndShowEditorBtn, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+    EnableWindow(g_hwndShowEditorBtn, FALSE); // Disabled until a plugin is selected
 
     g_hwndSaveBtn = CreateWindow(
-        "BUTTON", "Save Chain",
-        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-        320, 210, 100, 30, hwndParent, (HMENU)ID_BTN_SAVE_CHAIN, GetModuleHandle(NULL), NULL);
+        "BUTTON", "Save Chain...",
+        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
+        btnX, btnY += btnSpacing, btnWidth, btnHeight, 
+        g_hwndControlsGroup, (HMENU)ID_BTN_SAVE_CHAIN, GetModuleHandle(NULL), NULL);
+    SendMessage(g_hwndSaveBtn, WM_SETFONT, (WPARAM)g_hFont, TRUE);
 
     g_hwndLoadBtn = CreateWindow(
-        "BUTTON", "Load Chain",
-        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-        320, 250, 100, 30, hwndParent, (HMENU)ID_BTN_LOAD_CHAIN, GetModuleHandle(NULL), NULL);
+        "BUTTON", "Load Chain...",
+        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
+        btnX, btnY += btnSpacing, btnWidth, btnHeight, 
+        g_hwndControlsGroup, (HMENU)ID_BTN_LOAD_CHAIN, GetModuleHandle(NULL), NULL);
+    SendMessage(g_hwndLoadBtn, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+
+    g_hwndRefreshScanBtn = CreateWindow(
+        "BUTTON", "Rescan Plugins",
+        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
+        btnX, btnY += btnSpacing, btnWidth, btnHeight, 
+        g_hwndControlsGroup, (HMENU)ID_BTN_REFRESH_SCAN, GetModuleHandle(NULL), NULL);
+    SendMessage(g_hwndRefreshScanBtn, WM_SETFONT, (WPARAM)g_hFont, TRUE);
+
+    // Initial state - disable parameter controls since no plugin is selected yet
+    EnableWindow(g_hwndParameterList, FALSE);
+    EnableWindow(g_hwndParameterSlider, FALSE);
+
+    // Initialize common controls (for trackbar)
+    INITCOMMONCONTROLSEX icex;
+    icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
+    icex.dwICC = ICC_BAR_CLASSES;
+    InitCommonControlsEx(&icex);
+    
+    // Initial UI refresh
+    UpdateParameterControls();
+    UpdatePluginControls();
+    RefreshPluginListUI();
 }
 
-// Refresh plugin list UI
+// Create a styled font with specified properties
+HFONT CreateStyledFont(bool bold, int height) {
+    LOGFONT lf = {0};
+    lf.lfHeight = height;
+    strcpy(lf.lfFaceName, "Segoe UI");
+    lf.lfWeight = bold ? FW_BOLD : FW_NORMAL;
+    return CreateFontIndirect(&lf);
+}
+
+// Update controls related to parameter editing
+void UpdateParameterControls() {
+    if (g_selectedPluginIndex < 0 || g_selectedPluginIndex >= g_pluginChain.size()) {
+        // No plugin selected, disable parameter controls
+        EnableWindow(g_hwndParameterList, FALSE);
+        EnableWindow(g_hwndParameterSlider, FALSE);
+        SetWindowText(g_hwndParameterLabel, "No plugin selected");
+        SendMessage(g_hwndParameterList, LB_RESETCONTENT, 0, 0);
+        return;
+    }
+
+    // Enable parameter controls
+    EnableWindow(g_hwndParameterList, TRUE);
+    
+    // Get selected plugin
+    auto& item = g_pluginChain[g_selectedPluginIndex];
+    auto plugin = item.plugin;
+    
+    // Populate parameter list
+    SendMessage(g_hwndParameterList, LB_RESETCONTENT, 0, 0);
+    int paramCount = plugin->getNumParameters();
+    
+    if (paramCount == 0) {
+        SendMessage(g_hwndParameterList, LB_ADDSTRING, 0, (LPARAM)"No parameters available");
+        EnableWindow(g_hwndParameterSlider, FALSE);
+        return;
+    }
+    
+    // Add all parameters to the list
+    for (int i = 0; i < paramCount; i++) {
+        auto param = plugin->getParameter(i);
+        char buffer[256];
+        sprintf(buffer, "%s: %.2f", param.name.c_str(), param.currentValue);
+        SendMessage(g_hwndParameterList, LB_ADDSTRING, 0, (LPARAM)buffer);
+    }
+    
+    // Select the first parameter
+    SendMessage(g_hwndParameterList, LB_SETCURSEL, 0, 0);
+    g_selectedParameterIndex = 0;
+    
+    // Update parameter slider
+    if (paramCount > 0) {
+        EnableWindow(g_hwndParameterSlider, TRUE);
+        UpdateParameterSlider(g_selectedParameterIndex);
+    }
+}
+
+// Update the parameter slider for the selected parameter
+void UpdateParameterSlider(int parameterIndex) {
+    if (g_selectedPluginIndex < 0 || g_selectedPluginIndex >= g_pluginChain.size()) {
+        return;
+    }
+    
+    auto& item = g_pluginChain[g_selectedPluginIndex];
+    auto plugin = item.plugin;
+    
+    if (parameterIndex < 0 || parameterIndex >= plugin->getNumParameters()) {
+        return;
+    }
+    
+    auto param = plugin->getParameter(parameterIndex);
+    
+    // Update parameter label
+    char buffer[256];
+    sprintf(buffer, "%s: %.2f", param.name.c_str(), param.currentValue);
+    SetWindowText(g_hwndParameterLabel, buffer);
+    
+    // Update slider position (scale to 0-100 range)
+    double normalizedValue = (param.currentValue - param.minValue) / (param.maxValue - param.minValue);
+    int sliderPos = static_cast<int>(normalizedValue * 100);
+    SendMessage(g_hwndParameterSlider, TBM_SETPOS, TRUE, sliderPos);
+}
+
+// Update enable/disable state of plugin control buttons
+void UpdatePluginControls() {
+    bool hasSelection = (g_selectedPluginIndex >= 0 && g_selectedPluginIndex < g_pluginChain.size());
+    
+    EnableWindow(g_hwndRemoveBtn, hasSelection);
+    EnableWindow(g_hwndMoveUpBtn, hasSelection && g_selectedPluginIndex > 0);
+    EnableWindow(g_hwndMoveDownBtn, hasSelection && g_selectedPluginIndex < g_pluginChain.size() - 1);
+    EnableWindow(g_hwndEnablePluginCheck, hasSelection);
+    
+    if (hasSelection) {
+        auto& item = g_pluginChain[g_selectedPluginIndex];
+        Button_SetCheck(g_hwndEnablePluginCheck, item.enabled ? BST_CHECKED : BST_UNCHECKED);
+        EnableWindow(g_hwndShowEditorBtn, item.plugin->hasEditor());
+    } else {
+        EnableWindow(g_hwndShowEditorBtn, FALSE);
+    }
+}
+
+// Refresh the plugin list UI
 void RefreshPluginListUI() {
     SendMessage(g_hwndPluginList, LB_RESETCONTENT, 0, 0);
+    
     for (const auto& item : g_pluginChain) {
         SendMessage(g_hwndPluginList, LB_ADDSTRING, 0, (LPARAM)item.uniqueId.c_str());
     }
+    
+    if (g_selectedPluginIndex >= 0 && g_selectedPluginIndex < g_pluginChain.size()) {
+        SendMessage(g_hwndPluginList, LB_SETCURSEL, g_selectedPluginIndex, 0);
+    }
+    
+    char statusMsg[256];
+    sprintf(statusMsg, "Plugin chain: %zu plugin(s)", g_pluginChain.size());
+    SendMessage(g_hwndStatusBar, SB_SETTEXT, 0, (LPARAM)statusMsg);
+    
+    UpdatePluginControls();
 }
 
-// Move plugin up in the chain
-void MovePluginUp(int index) {
-    if (index > 0) {
-        std::swap(g_pluginChain[index], g_pluginChain[index - 1]);
+// Move selected plugin up in the chain
+void MovePluginUp() {
+    if (g_selectedPluginIndex > 0 && g_selectedPluginIndex < g_pluginChain.size()) {
+        std::swap(g_pluginChain[g_selectedPluginIndex], g_pluginChain[g_selectedPluginIndex - 1]);
+        g_selectedPluginIndex--;
+        
+        // Update chain positions
+        for (size_t i = 0; i < g_pluginChain.size(); ++i) {
+            g_pluginChain[i].chainPosition = i;
+        }
+        
         RefreshPluginListUI();
+        UpdateParameterControls();
     }
 }
 
-// Move plugin down in the chain
-void MovePluginDown(int index) {
-    if (index < g_pluginChain.size() - 1) {
-        std::swap(g_pluginChain[index], g_pluginChain[index + 1]);
+// Move selected plugin down in the chain
+void MovePluginDown() {
+    if (g_selectedPluginIndex >= 0 && g_selectedPluginIndex < g_pluginChain.size() - 1) {
+        std::swap(g_pluginChain[g_selectedPluginIndex], g_pluginChain[g_selectedPluginIndex + 1]);
+        g_selectedPluginIndex++;
+        
+        // Update chain positions
+        for (size_t i = 0; i < g_pluginChain.size(); ++i) {
+            g_pluginChain[i].chainPosition = i;
+        }
+        
         RefreshPluginListUI();
+        UpdateParameterControls();
     }
 }
 
-// Remove plugin from the chain
-void RemovePlugin(int index) {
-    if (index >= 0 && index < g_pluginChain.size()) {
-        g_pluginChain.erase(g_pluginChain.begin() + index);
+// Remove the selected plugin from the chain
+void RemoveSelectedPlugin() {
+    if (g_selectedPluginIndex >= 0 && g_selectedPluginIndex < g_pluginChain.size()) {
+        std::string pluginName = g_pluginChain[g_selectedPluginIndex].uniqueId;
+        g_pluginChain.erase(g_pluginChain.begin() + g_selectedPluginIndex);
+        
+        // Update chain positions
+        for (size_t i = 0; i < g_pluginChain.size(); ++i) {
+            g_pluginChain[i].chainPosition = i;
+        }
+        
+        // Update selection
+        if (g_pluginChain.empty()) {
+            g_selectedPluginIndex = -1;
+        } else if (g_selectedPluginIndex >= g_pluginChain.size()) {
+            g_selectedPluginIndex = g_pluginChain.size() - 1;
+        }
+        
         RefreshPluginListUI();
+        UpdateParameterControls();
+        
+        char statusMsg[256];
+        sprintf(statusMsg, "Removed plugin: %s", pluginName.c_str());
+        SendMessage(g_hwndStatusBar, SB_SETTEXT, 0, (LPARAM)statusMsg);
     }
-}
-
-// Toggle plugin enabled state
-void TogglePluginEnabled(int index) {
-    if (index >= 0 && index < g_pluginChain.size()) {
-        g_pluginChain[index].enabled = !g_pluginChain[index].enabled;
-        RefreshPluginListUI();
-    }
-}
-
-// Handle double-click on plugin list
-void HandlePluginListDblClick(int index) {
-    TogglePluginEnabled(index);
 }
 #endif
