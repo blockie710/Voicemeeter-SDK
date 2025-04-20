@@ -16,6 +16,8 @@ VMPluginHost::~VMPluginHost() {
 
 bool VMPluginHost::LoadPlugin(const std::string& path) {
     try {
+        UnloadPlugin(); // Unload any existing plugin
+        
         // Detect plugin format
         PluginFormat format = DetectFormat(path);
         if (format == PluginFormat::UNKNOWN) {
@@ -31,14 +33,19 @@ bool VMPluginHost::LoadPlugin(const std::string& path) {
         }
 
         // Load plugin
-        m_plugin = scanner->loadPlugin(path);
+        m_plugin = scanner->loadPlugin(path, format);
         if (!m_plugin) {
             std::cerr << "Failed to load plugin: " << path << std::endl;
             return false;
         }
 
         // Prepare for audio processing with default values
-        m_plugin->initialize();
+        if (!m_plugin->initialize()) {
+            std::cerr << "Failed to initialize plugin: " << path << std::endl;
+            m_plugin = nullptr;
+            return false;
+        }
+        
         m_plugin->prepareToPlay(48000.0, 1024);
         return true;
     }
@@ -213,16 +220,20 @@ int VMPluginHost::GetPluginCount() const {
 }
 
 PluginFormat VMPluginHost::DetectFormat(const std::string& path) {
-    std::filesystem::path filePath(path);
-    std::string extension = filePath.extension().string();
-    std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
+    auto extension = std::filesystem::path(path).extension().string();
     
     if (extension == ".vst3") return PluginFormat::VST3;
     if (extension == ".aaxplugin") return PluginFormat::AAX;
-    if (extension == ".component" || extension == ".appex") return PluginFormat::AAU;
-    if (extension == ".araplug") return PluginFormat::ARA;
-    if (extension == ".lua") return PluginFormat::LUA;
+    if (extension == ".component") return PluginFormat::AAU;
     if (extension == ".jsfx") return PluginFormat::REAPER;
+    if (extension == ".lua") return PluginFormat::LUA;
+    
+    // For directories, try to determine from structure
+    if (std::filesystem::is_directory(path)) {
+        if (path.find(".vst3") != std::string::npos) return PluginFormat::VST3;
+        if (path.find(".aaxplugin") != std::string::npos) return PluginFormat::AAX;
+        if (path.find(".component") != std::string::npos) return PluginFormat::AAU;
+    }
     
     return PluginFormat::UNKNOWN;
 }

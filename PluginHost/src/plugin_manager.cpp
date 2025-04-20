@@ -611,7 +611,24 @@ std::shared_ptr<PluginInstance> PluginManager::loadPlugin(const std::string& pat
     // Check if plugin is discovered
     auto it = m_impl->discoveredPlugins.find(path);
     if (it == m_impl->discoveredPlugins.end()) {
-        return nullptr;
+        // Try to detect format from file extension
+        PluginFormat format = PluginFormat::UNKNOWN;
+        std::string extension = std::filesystem::path(path).extension().string();
+        
+        if (extension == ".vst3") format = PluginFormat::VST3;
+        else if (extension == ".aaxplugin") format = PluginFormat::AAX;
+        else if (extension == ".component") format = PluginFormat::AAU;
+        else if (extension == ".jsfx") format = PluginFormat::REAPER;
+        else if (extension == ".lua") format = PluginFormat::LUA;
+        
+        // Create scanner for detected format
+        auto scanner = createPluginScanner(format);
+        if (!scanner) {
+            return nullptr;
+        }
+        
+        // Load the plugin
+        return scanner->loadPlugin(path, format);
     }
     
     // Get plugin info
@@ -629,6 +646,20 @@ std::shared_ptr<PluginInstance> PluginManager::loadPlugin(const std::string& pat
     // Update usage metadata if successful
     if (plugin) {
         PluginInfo& mutableInfo = m_impl->discoveredPlugins[path];
+        mutableInfo.lastUsed = std::chrono::system_clock::now();
+        mutableInfo.useCount++;
+    }
+    
+    return plugin;
+}
+
+std::set<std::string> PluginManager::getAllCategories() const {
+    std::lock_guard<std::mutex> lock(m_impl->pluginsMutex);
+    std::set<std::string> categories;
+    
+    for (const auto& pair : m_impl->discoveredPlugins) {
+        if (!pair.second.category.empty()) {
+            categories.insert(pair.second.category);
         }
     }
     

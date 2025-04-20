@@ -52,8 +52,14 @@ std::vector<PluginDescription> VST3PluginScanner::scanDirectory(const std::strin
     return result;
 }
 
-std::shared_ptr<PluginInstance> VST3PluginScanner::loadPlugin(const std::string& path) {
+std::shared_ptr<PluginInstance> VST3PluginScanner::loadPlugin(const std::string& path, PluginFormat format) {
     std::cout << "Loading VST3 plugin: " << path << std::endl;
+    
+    // Check if the format is correct when specified
+    if (format != PluginFormat::UNKNOWN && format != PluginFormat::VST3) {
+        std::cerr << "Wrong format requested for VST3 plugin" << std::endl;
+        return nullptr;
+    }
     
     try {
         if (!std::filesystem::exists(path)) {
@@ -61,7 +67,7 @@ std::shared_ptr<PluginInstance> VST3PluginScanner::loadPlugin(const std::string&
             return nullptr;
         }
         
-        // Create the plugin instance (stub implementation)
+        // Create the plugin instance
         auto plugin = std::make_shared<VST3Plugin>(path);
         if (!plugin->initialize()) {
             std::cerr << "Failed to initialize VST3 plugin: " << path << std::endl;

@@ -321,32 +321,43 @@ std::vector<std::string> AAUPluginScanner::getRegisteredAUComponents() const {
     return components;
 }
 
-std::vector<std::string> AAUPluginScanner::scanDirectory(const std::string& directory, PluginFormat format) {
-    std::vector<std::string> results;
-    
-    // Check if format is correct
-    if (format != PluginFormat::AAU) {
-        return results;
-    }
+std::vector<PluginDescription> AAUPluginScanner::scanDirectory(const std::string& directory) {
+    std::vector<PluginDescription> result;
+    std::cout << "Scanning for AAU plugins in: " << directory << std::endl;
     
     #ifdef __APPLE__
     // AudioUnits aren't typically found by directory scanning, they are registered
     // in the system. However, we could look for component bundles.
-    std::cout << "Scanning for AudioUnit plugins in registry..." << std::endl;
-    
-    // Get components from the registry instead
-    results = getRegisteredAUComponents();
+    try {
+        for (const auto& entry : std::filesystem::directory_iterator(directory)) {
+            if (entry.is_directory() && entry.path().extension() == ".component") {
+                PluginDescription desc;
+                desc.name = entry.path().stem().string();
+                desc.path = entry.path().string();
+                desc.format = PluginFormat::AAU;
+                desc.vendor = "Unknown";
+                desc.version = "1.0.0";
+                desc.uniqueId = "aau." + entry.path().stem().string();
+                desc.numInputs = 2;   // Default to stereo
+                desc.numOutputs = 2;  // Default to stereo
+                
+                result.push_back(desc);
+            }
+        }
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Error scanning for AAU plugins: " << e.what() << std::endl;
+    }
     #else
-    std::cout << "Audio Units are only available on macOS platforms." << std::endl;
+    std::cout << "AudioUnit plugins are only available on macOS platforms." << std::endl;
     #endif
     
-    std::cout << "Found " << results.size() << " AudioUnit plugin(s)" << std::endl;
-    return results;
+    return result;
 }
 
 std::shared_ptr<PluginInstance> AAUPluginScanner::loadPlugin(const std::string& path, PluginFormat format) {
     // Check if format is correct
-    if (format != PluginFormat::AAU) {
+    if (format != PluginFormat::UNKNOWN && format != PluginFormat::AAU) {
         return nullptr;
     }
     

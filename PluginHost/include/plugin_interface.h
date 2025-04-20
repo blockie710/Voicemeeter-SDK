@@ -104,7 +104,7 @@ public:
     virtual std::vector<PluginDescription> scanDirectory(const std::string& directory) = 0;
     
     // Load a specific plugin by path
-    virtual std::shared_ptr<PluginInstance> loadPlugin(const std::string& path) = 0;
+    virtual std::shared_ptr<PluginInstance> loadPlugin(const std::string& path, PluginFormat format = PluginFormat::UNKNOWN) = 0;
 };
 
 // Factory function to create plugin scanner for a format

@@ -290,12 +290,12 @@ std::unique_ptr<PluginScanner> createPluginScanner(PluginFormat format) {
                 return std::make_unique<AAXPluginScanner>();
                 
             case PluginFormat::AAU:
+                g_logger.log(PluginLogger::Level::Info, "Creating AAU plugin scanner");
                 #ifdef __APPLE__
-                    g_logger.log(PluginLogger::Level::Info, "Creating AAU plugin scanner");
-                    return std::make_unique<AAUPluginScanner>();
+                return std::make_unique<AAUPluginScanner>();
                 #else
-                    g_logger.log(PluginLogger::Level::Warning, "AAU plugins are not supported on this platform (macOS only)");
-                    return nullptr;
+                g_logger.log(PluginLogger::Level::Warning, "AAU plugins are only supported on macOS");
+                return nullptr;
                 #endif
                 
             case PluginFormat::ARA:
@@ -310,13 +310,13 @@ std::unique_ptr<PluginScanner> createPluginScanner(PluginFormat format) {
                 g_logger.log(PluginLogger::Level::Info, "Creating REAPER plugin scanner");
                 return std::make_unique<ReaperPluginScanner>();
                 
+            case PluginFormat::UNKNOWN:
             default:
-                g_logger.log(PluginLogger::Level::Error, "Unknown plugin format requested");
+                g_logger.log(PluginLogger::Level::Error, "Unknown plugin format specified");
                 return nullptr;
         }
-    }
-    catch (const std::exception& e) {
-        g_logger.log(PluginLogger::Level::Error, "Failed to create plugin scanner: " + std::string(e.what()));
+    } catch (const std::exception& e) {
+        g_logger.log(PluginLogger::Level::Error, "Exception creating plugin scanner: " + std::string(e.what()));
         return nullptr;
     }
 }

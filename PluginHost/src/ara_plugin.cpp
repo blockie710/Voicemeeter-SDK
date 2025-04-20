@@ -427,14 +427,30 @@ std::vector<std::string> ARAPluginScanner::scanDirectory(const std::string& dire
 }
 
 std::shared_ptr<PluginInstance> ARAPluginScanner::loadPlugin(const std::string& path, PluginFormat format) {
-    if (format != PluginFormat::ARA || !isARAPlugin(path)) {
+    std::cout << "Loading ARA plugin: " << path << std::endl;
+    
+    // Check if the format is correct when specified
+    if (format != PluginFormat::UNKNOWN && format != PluginFormat::ARA) {
+        std::cerr << "Wrong format requested for ARA plugin" << std::endl;
         return nullptr;
     }
     
     try {
-        auto plugin = std::make_shared<ARAPluginInstanceImpl>(path);
+        if (!std::filesystem::exists(path)) {
+            std::cerr << "Plugin file does not exist: " << path << std::endl;
+            return nullptr;
+        }
+        
+        // Create the plugin instance
+        auto plugin = std::make_shared<ARAPlugin>(path);
+        if (!plugin->initialize()) {
+            std::cerr << "Failed to initialize ARA plugin: " << path << std::endl;
+            return nullptr;
+        }
+        
         return plugin;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception& e) {
         std::cerr << "Error loading ARA plugin: " << e.what() << std::endl;
         return nullptr;
     }

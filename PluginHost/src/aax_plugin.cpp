@@ -53,8 +53,14 @@ std::vector<PluginDescription> AAXPluginScanner::scanDirectory(const std::string
     return result;
 }
 
-std::shared_ptr<PluginInstance> AAXPluginScanner::loadPlugin(const std::string& path) {
+std::shared_ptr<PluginInstance> AAXPluginScanner::loadPlugin(const std::string& path, PluginFormat format) {
     std::cout << "Loading AAX plugin: " << path << std::endl;
+    
+    // Check if the format is correct when specified
+    if (format != PluginFormat::UNKNOWN && format != PluginFormat::AAX) {
+        std::cerr << "Wrong format requested for AAX plugin" << std::endl;
+        return nullptr;
+    }
     
     try {
         if (!std::filesystem::exists(path)) {

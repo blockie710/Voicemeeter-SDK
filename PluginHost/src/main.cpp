@@ -269,7 +269,7 @@ bool loadPlugin(const std::string& path, PluginFormat format) {
         }
         
         // Load the plugin
-        auto plugin = scanner->loadPlugin(path);
+        auto plugin = scanner->loadPlugin(path, format);
         if (!plugin) {
             std::cerr << "Failed to load plugin" << std::endl;
             return false;
