@@ -257,4 +257,32 @@ bool getRegistryValueDword(HKEY root, const std::string& subKey, const std::stri
     return (result == ERROR_SUCCESS && type == REG_DWORD);
 }
 
+// Check if Voicemeeter is installed
+bool isVoicemeeterInstalled() {
+    HKEY hKey;
+    LONG result;
+    
+    // Try standard registry path
+    result = RegOpenKeyExA(HKEY_LOCAL_MACHINE, 
+        "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\VB:Voicemeeter {17359A74-1236-5467}", 
+        0, KEY_READ, &hKey);
+        
+    if (result == ERROR_SUCCESS) {
+        RegCloseKey(hKey);
+        return true;
+    }
+    
+    // Try the 32-bit registry view on 64-bit Windows
+    result = RegOpenKeyExA(HKEY_LOCAL_MACHINE, 
+        "SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\VB:Voicemeeter {17359A74-1236-5467}", 
+        0, KEY_READ, &hKey);
+        
+    if (result == ERROR_SUCCESS) {
+        RegCloseKey(hKey);
+        return true;
+    }
+    
+    return false;
+}
+
 #endif // _WIN32

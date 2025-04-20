@@ -46,12 +46,15 @@ public:
     // Close the connection to Voicemeeter
     void shutdown();
 
+    // Check if Voicemeeter is installed on the system
+    bool isVoicemeeterInstalled();
+
     // Get info about the running Voicemeeter instance
     VoicemeeterType getVoicemeeterType();
     long getVoicemeeterVersion();
     
     // Launch Voicemeeter if not running
-    bool launchVoicemeeter(VoicemeeterType type);
+    bool launchVoicemeeter(int type = -1);
 
     // Register for audio callbacks
     bool registerAudioCallback(AudioProcessCallback callback, 
@@ -62,6 +65,9 @@ public:
     bool startAudioProcessing();
     bool stopAudioProcessing();
     
+    // Check if audio is currently being processed
+    bool isRunning() const;
+
     // Set and get parameters
     bool setParameter(const std::string& paramName, float value);
     bool getParameter(const std::string& paramName, float& value);
@@ -71,6 +77,8 @@ public:
     bool getOutputLevel(int channel, float& level);
     
     // Get available strip and bus counts
+    int getNumHardwareInputs();
+    int getNumVirtualInputs();
     int getNumStrips() const;
     int getNumBuses() const;
     

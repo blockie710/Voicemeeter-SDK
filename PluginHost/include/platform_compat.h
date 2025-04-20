@@ -9,6 +9,7 @@
 #define PLATFORM_COMPAT_H
 
 #include <string>
+#include <vector>
 
 #ifdef _WIN32
 // Windows-specific includes
@@ -55,5 +56,8 @@ void* createAAXPluginEditorWindow(void* parentWindow, const std::string& title);
 bool getRegistryValueString(HKEY root, const std::string& subKey, const std::string& valueName, std::string& value);
 bool getRegistryValueDword(HKEY root, const std::string& subKey, const std::string& valueName, DWORD& value);
 #endif
+
+// Check if Voicemeeter is installed
+bool isVoicemeeterInstalled();
 
 #endif // PLATFORM_COMPAT_H

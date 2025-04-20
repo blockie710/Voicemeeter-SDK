@@ -16,6 +16,7 @@
 extern bool loadVoicemeeterRemoteDLL();
 extern void unloadVoicemeeterRemoteDLL();
 extern void* getVoicemeeterProcAddress(const char* procName);
+extern bool isVoicemeeterInstalled();
 #endif
 
 namespace VoicemeeterIntegration {
@@ -62,6 +63,15 @@ public:
         }
     }
     
+    bool isVoicemeeterInstalled() {
+        #ifdef _WIN32
+        return ::isVoicemeeterInstalled();
+        #else
+        // For non-Windows platforms, we don't support Voicemeeter
+        return false;
+        #endif
+    }
+    
     bool initialize() {
         std::lock_guard<std::mutex> lock(m_mutex);
         
@@ -70,6 +80,12 @@ public:
         }
         
         #ifdef _WIN32
+        // Check if Voicemeeter is installed
+        if (!isVoicemeeterInstalled()) {
+            std::cerr << "Voicemeeter is not installed" << std::endl;
+            return false;
+        }
+        
         // Load the DLL
         if (!loadVoicemeeterRemoteDLL()) {
             std::cerr << "Failed to load Voicemeeter Remote DLL" << std::endl;
@@ -352,6 +368,10 @@ bool VoicemeeterClient::stopAudioProcessing() {
 
 bool VoicemeeterClient::isRunning() const {
     return m_impl->isRunning();
+}
+
+bool VoicemeeterClient::isVoicemeeterInstalled() {
+    return m_impl->isVoicemeeterInstalled();
 }
 
 } // namespace VoicemeeterIntegration
