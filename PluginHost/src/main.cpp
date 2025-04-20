@@ -67,6 +67,14 @@ struct PluginChainItem {
 #pragma comment(lib, "gdi32.lib")
 #endif
 
+// Utility function to check if a string ends with a given suffix
+bool string_ends_with(const std::string& str, const std::string& suffix) {
+    if (str.length() < suffix.length()) {
+        return false;
+    }
+    return str.compare(str.length() - suffix.length(), suffix.length(), suffix) == 0;
+}
+
 // Defines for window creation
 #define WINDOW_WIDTH 1024
 #define WINDOW_HEIGHT 768
