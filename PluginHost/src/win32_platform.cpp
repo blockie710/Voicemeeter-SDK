@@ -8,8 +8,6 @@
 
 #ifdef _WIN32
 
-// Windows specific implementation of UI and platform functions
-
 // Helper function to get special folder path
 std::string getSpecialFolderPath(int csidl) {
     wchar_t path[MAX_PATH];
@@ -95,78 +93,6 @@ std::string wideToUtf8(const std::wstring& wide) {
     }
     
     return utf8;
-}
-
-// Show a message dialog
-int showMessageDialog(const std::string& message, const std::string& title, int flags) {
-    return MessageBoxW(
-        NULL, 
-        utf8ToWide(message).c_str(), 
-        utf8ToWide(title).c_str(), 
-        flags
-    );
-}
-
-// Show file open dialog
-std::string showFileOpenDialog(const std::string& title, const std::string& filter, void* parentWindow) {
-    OPENFILENAMEW ofn = {0};
-    wchar_t szFile[MAX_PATH] = {0};
-    
-    ofn.lStructSize = sizeof(OPENFILENAMEW);
-    ofn.hwndOwner = (HWND)parentWindow;
-    ofn.lpstrFilter = utf8ToWide(filter).c_str();
-    ofn.lpstrFile = szFile;
-    ofn.nMaxFile = MAX_PATH;
-    ofn.lpstrTitle = utf8ToWide(title).c_str();
-    ofn.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
-    
-    if (GetOpenFileNameW(&ofn)) {
-        return wideToUtf8(szFile);
-    }
-    
-    return "";
-}
-
-// Show file save dialog
-std::string showFileSaveDialog(const std::string& title, const std::string& filter, const std::string& defaultExt, void* parentWindow) {
-    OPENFILENAMEW ofn = {0};
-    wchar_t szFile[MAX_PATH] = {0};
-    
-    ofn.lStructSize = sizeof(OPENFILENAMEW);
-    ofn.hwndOwner = (HWND)parentWindow;
-    ofn.lpstrFilter = utf8ToWide(filter).c_str();
-    ofn.lpstrFile = szFile;
-    ofn.nMaxFile = MAX_PATH;
-    ofn.lpstrTitle = utf8ToWide(title).c_str();
-    ofn.lpstrDefExt = utf8ToWide(defaultExt).c_str();
-    ofn.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT;
-    
-    if (GetSaveFileNameW(&ofn)) {
-        return wideToUtf8(szFile);
-    }
-    
-    return "";
-}
-
-// Set window position and size
-void setWindowRect(void* window, int x, int y, int width, int height) {
-    SetWindowPos(
-        (HWND)window, 
-        NULL, 
-        x, y, width, height, 
-        SWP_NOZORDER | SWP_NOACTIVATE
-    );
-}
-
-// Get window position and size
-void getWindowRect(void* window, int& x, int& y, int& width, int& height) {
-    RECT rect;
-    GetWindowRect((HWND)window, &rect);
-    
-    x = rect.left;
-    y = rect.top;
-    width = rect.right - rect.left;
-    height = rect.bottom - rect.top;
 }
 
 // Window creation helper

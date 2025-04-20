@@ -228,19 +228,50 @@ void* getVoicemeeterProcAddress(const char* procName) {
 
 // Initialize the logger
 bool initPluginLogger(const std::string& logDir) {
-    return g_logger.initialize(logDir);
+    try {
+        // Create logs directory if it doesn't exist
+        std::filesystem::path dirPath(logDir);
+        if (!std::filesystem::exists(dirPath)) {
+            std::filesystem::create_directories(dirPath);
+        }
+        
+        return g_logger.initialize(logDir);
+    } 
+    catch (const std::exception& e) {
+        std::cerr << "Error initializing plugin logger: " << e.what() << std::endl;
+        return false;
+    }
+    catch (...) {
+        std::cerr << "Unknown error initializing plugin logger" << std::endl;
+        return false;
+    }
 }
 
 // Set log level
 void setPluginLogLevel(int level) {
     PluginLogger::Level logLevel = PluginLogger::Level::Info;
+    
     switch (level) {
-        case 0: logLevel = PluginLogger::Level::Debug; break;
-        case 1: logLevel = PluginLogger::Level::Info; break;
-        case 2: logLevel = PluginLogger::Level::Warning; break;
-        case 3: logLevel = PluginLogger::Level::Error; break;
-        case 4: logLevel = PluginLogger::Level::Fatal; break;
+        case 0:
+            logLevel = PluginLogger::Level::Debug;
+            break;
+        case 1:
+            logLevel = PluginLogger::Level::Info;
+            break;
+        case 2:
+            logLevel = PluginLogger::Level::Warning;
+            break;
+        case 3:
+            logLevel = PluginLogger::Level::Error;
+            break;
+        case 4:
+            logLevel = PluginLogger::Level::Fatal;
+            break;
+        default:
+            logLevel = PluginLogger::Level::Info;
+            break;
     }
+    
     g_logger.setLogLevel(logLevel);
 }
 
@@ -282,41 +313,28 @@ std::unique_ptr<PluginScanner> createPluginScanner(PluginFormat format) {
     try {
         switch (format) {
             case PluginFormat::VST3:
-                g_logger.log(PluginLogger::Level::Info, "Creating VST3 plugin scanner");
                 return std::make_unique<VST3PluginScanner>();
-                
             case PluginFormat::AAX:
-                g_logger.log(PluginLogger::Level::Info, "Creating AAX plugin scanner");
                 return std::make_unique<AAXPluginScanner>();
-                
             case PluginFormat::AAU:
-                g_logger.log(PluginLogger::Level::Info, "Creating AAU plugin scanner");
-                #ifdef __APPLE__
                 return std::make_unique<AAUPluginScanner>();
-                #else
-                g_logger.log(PluginLogger::Level::Warning, "AAU plugins are only supported on macOS");
-                return nullptr;
-                #endif
-                
             case PluginFormat::ARA:
-                g_logger.log(PluginLogger::Level::Info, "Creating ARA plugin scanner");
                 return std::make_unique<ARAPluginScanner>();
-                
             case PluginFormat::LUA:
-                g_logger.log(PluginLogger::Level::Info, "Creating LUA plugin scanner");
                 return std::make_unique<LuaPluginScanner>();
-                
             case PluginFormat::REAPER:
-                g_logger.log(PluginLogger::Level::Info, "Creating REAPER plugin scanner");
                 return std::make_unique<ReaperPluginScanner>();
-                
-            case PluginFormat::UNKNOWN:
             default:
-                g_logger.log(PluginLogger::Level::Error, "Unknown plugin format specified");
+                g_logger.log(PluginLogger::Level::Error, "Unsupported plugin format: " + std::to_string(static_cast<int>(format)));
                 return nullptr;
         }
-    } catch (const std::exception& e) {
-        g_logger.log(PluginLogger::Level::Error, "Exception creating plugin scanner: " + std::string(e.what()));
+    }
+    catch (const std::exception& e) {
+        g_logger.log(PluginLogger::Level::Error, "Error creating plugin scanner: " + std::string(e.what()));
+        return nullptr;
+    }
+    catch (...) {
+        g_logger.log(PluginLogger::Level::Error, "Unknown error creating plugin scanner");
         return nullptr;
     }
 }
@@ -324,12 +342,21 @@ std::unique_ptr<PluginScanner> createPluginScanner(PluginFormat format) {
 // Helper function to get format name
 const char* getPluginFormatName(PluginFormat format) {
     switch (format) {
-        case PluginFormat::VST3: return "VST3";
-        case PluginFormat::AAX: return "AAX";
-        case PluginFormat::AAU: return "Audio Unit";
-        case PluginFormat::ARA: return "ARA";
-        case PluginFormat::LUA: return "Lua Script";
-        case PluginFormat::REAPER: return "REAPER/JSFX";
-        default: return "Unknown";
+        case PluginFormat::VST3:
+            return "VST3";
+        case PluginFormat::VST:
+            return "VST";
+        case PluginFormat::AAX:
+            return "AAX";
+        case PluginFormat::AAU:
+            return "AudioUnit";
+        case PluginFormat::ARA:
+            return "ARA";
+        case PluginFormat::LUA:
+            return "Lua";
+        case PluginFormat::REAPER:
+            return "REAPER";
+        default:
+            return "Unknown";
     }
 }
