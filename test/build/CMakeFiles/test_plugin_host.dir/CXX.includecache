@@ -1,0 +1,26 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/workspaces/Voicemeeter-SDK/test/test_existing_plugin_host.cpp
+iostream
+-
+string
+-
+cstring
+-
+memory
+-
+chrono
+-
+cmath
+-
+../PluginHost/src/VMPluginHost.h
+/workspaces/Voicemeeter-SDK/PluginHost/src/VMPluginHost.h
+windows.h
+-
+
