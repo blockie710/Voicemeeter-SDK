@@ -116,9 +116,9 @@ bool loadVoicemeeterRemoteDLL() {
     
     // Use the appropriate DLL based on architecture
     if (sizeof(void*) == 8) {
-        strcat(szDllName, "VoicemeeterRemote64.dll");
+        StringCbCatA(szDllName, sizeof(szDllName), "VoicemeeterRemote64.dll");
     } else {
-        strcat(szDllName, "VoicemeeterRemote.dll");
+        StringCbCatA(szDllName, sizeof(szDllName), "VoicemeeterRemote.dll");
     }
     
     // Load the DLL
