@@ -16,6 +16,8 @@
 #include "../include/vst3_plugin.h"
 #include "../include/aax_plugin.h"
 #include "../include/aau_plugin.h"
+#include "../include/platform_utils.h"
+#include "../include/error_handling.h"
 
 // External functions from plugin_interface.cpp
 extern bool initPluginLogger(const std::string& logDir);
@@ -72,22 +74,12 @@ struct PluginChainItem {
 // Utility function to check if a string ends with a given suffix
 bool string_ends_with(const std::string& str, const std::string& suffix) {
     return str.size() >= suffix.size() && 
-            str.compare(str.size() - suffix.size(), suffix.size(), suffix) == 0;
+            str.compare(str.size() - suffix.size(), suffix.size(), 0) == 0;
 }
 
-// Improved plugin path helper
+// Helper to get user's home directory
 std::string getHomeDirectory() {
-    #ifdef _WIN32
-        const char* homeDrive = getenv("HOMEDRIVE");
-        const char* homePath = getenv("HOMEPATH");
-        if (homeDrive && homePath) {
-            return std::string(homeDrive) + std::string(homePath);
-        }
-        return "C:\\Users\\Default";
-    #else
-        const char* home = getenv("HOME");
-        return home ? home : "/home";
-    #endif
+    return PlatformUtils::getHomeDirectory();
 }
 
 // Defines for window creation
@@ -224,36 +216,36 @@ bool scanForPlugins(const std::string& directory, PluginFormat format) {
     std::cout << "Scanning for " << getFormatName(format) << " plugins in: " << directory << std::endl;
     
     // Check if directory exists
-    std::error_code ec;
-    if (!std::filesystem::exists(directory, ec) || ec) {
+    if (!std::filesystem::exists(directory)) {
         std::cout << "  Directory does not exist or is not accessible" << std::endl;
         return false;
     }
 
-    try {
-        // Create appropriate scanner
-        auto scanner = createPluginScanner(format);
-        if (!scanner) {
-            std::cout << "  Plugin format not supported on this platform" << std::endl;
-            return false;
-        }
-        
-        // Scan for plugins
-        std::vector<PluginDescription> plugins = scanner->scanDirectory(directory);
-        std::cout << "  Found " << plugins.size() << " plugins" << std::endl;
-        
-        // Save plugin info for later use
-        for (const auto& desc : plugins) {
-            std::cout << "  - " << desc.name << " (" << desc.path << ")" << std::endl;
-            // Store plugin descriptions in a global cache for later use
-            g_pluginDescriptions.push_back(desc);
-        }
-        
-        return !plugins.empty();
-    } catch (const std::exception& e) {
-        std::cerr << "  Error scanning directory: " << e.what() << std::endl;
-        return false;
-    }
+    return ErrorHandling::safeExecute<std::function<bool()>, bool>(
+        [&]() {
+            // Create appropriate scanner
+            auto scanner = createPluginScanner(format);
+            if (!scanner) {
+                std::cout << "  Plugin format not supported on this platform" << std::endl;
+                return false;
+            }
+            
+            // Scan for plugins
+            std::vector<PluginDescription> plugins = scanner->scanDirectory(directory);
+            std::cout << "  Found " << plugins.size() << " plugins" << std::endl;
+            
+            // Save plugin info for later use
+            for (const auto& desc : plugins) {
+                std::cout << "  - " << desc.name << " (" << desc.path << ")" << std::endl;
+                // Store plugin descriptions in a global cache for later use
+                g_pluginDescriptions.push_back(desc);
+            }
+            
+            return !plugins.empty();
+        },
+        "Error scanning directory " + directory,
+        false
+    );
 }
 
 // Improved plugin loading function with format auto-detection
@@ -680,18 +672,29 @@ int main(int argc, char** argv) {
     if (!args.noScan) {
         std::cout << "Scanning for plugins..." << std::endl;
 
-        // Default plugin directories
+        // Use platform-independent paths for scanning plugins
         #ifdef _WIN32
-        scanForPlugins("C:\\Program Files\\Common Files\\VST3", PluginFormat::VST3);
-        scanForPlugins("C:\\Program Files\\Common Files\\Avid\\Audio\\Plug-Ins", PluginFormat::AAX);
+        for (const auto& path : PlatformUtils::getStandardPluginDirectories()) {
+            if (path.find("VST3") != std::string::npos) {
+                scanForPlugins(path, PluginFormat::VST3);
+            } else if (path.find("Avid") != std::string::npos) {
+                scanForPlugins(path, PluginFormat::AAX);
+            }
+        }
         #elif defined(__APPLE__)
-        scanForPlugins("/Library/Audio/Plug-Ins/VST3", PluginFormat::VST3);
-        scanForPlugins("/Library/Application Support/Avid/Audio/Plug-Ins", PluginFormat::AAX);
-        scanForPlugins("/Library/Audio/Plug-Ins/Components", PluginFormat::AAU);
+        for (const auto& path : PlatformUtils::getStandardPluginDirectories()) {
+            if (path.find("VST3") != std::string::npos) {
+                scanForPlugins(path, PluginFormat::VST3);
+            } else if (path.find("Components") != std::string::npos) {
+                scanForPlugins(path, PluginFormat::AAU);
+            } else if (path.find("Avid") != std::string::npos) {
+                scanForPlugins(path, PluginFormat::AAX);
+            }
+        }
         #else
-        scanForPlugins("/usr/lib/vst3", PluginFormat::VST3);
-        scanForPlugins("/usr/local/lib/vst3", PluginFormat::VST3);
-        scanForPlugins(getHomeDirectory() + "/.vst3", PluginFormat::VST3);
+        for (const auto& path : PlatformUtils::getStandardPluginDirectories()) {
+            scanForPlugins(path, PluginFormat::VST3);
+        }
         #endif
 
         // Additional plugin directories from command line
