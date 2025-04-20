@@ -756,8 +756,10 @@ void CreateControls(HWND hwndParent) {
 HFONT CreateStyledFont(bool bold, int height) {
     LOGFONT lf = {0};
     lf.lfHeight = height;
-    strcpy(lf.lfFaceName, "Segoe UI");
     lf.lfWeight = bold ? FW_BOLD : FW_NORMAL;
+    lf.lfQuality = CLEARTYPE_QUALITY;
+    // Use Arial like Voicemeeter does
+    strcpy(lf.lfFaceName, "Arial");
     return CreateFontIndirect(&lf);
 }
 
