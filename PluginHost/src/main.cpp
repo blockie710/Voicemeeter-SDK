@@ -123,6 +123,12 @@ void displayVoicemeeterInfo();
 CommandLineArgs parseCommandLine(int argc, char** argv);
 void displayHelp();
 
+// String utility functions for C++17 compatibility (ends_with is C++20)
+bool string_ends_with(const std::string& str, const std::string& suffix) {
+    if (str.length() < suffix.length()) return false;
+    return str.compare(str.length() - suffix.length(), suffix.length(), suffix) == 0;
+}
+
 #ifdef _WIN32
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 #endif
@@ -343,15 +349,15 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                             std::string path = szFile;
                             PluginFormat format = PluginFormat::UNKNOWN;
 
-                            if (path.ends_with(".vst3")) {
+                            if (string_ends_with(path, ".vst3")) {
                                 format = PluginFormat::VST3;
-                            } else if (path.ends_with(".aaxplugin")) {
+                            } else if (string_ends_with(path, ".aaxplugin")) {
                                 format = PluginFormat::AAX;
-                            } else if (path.ends_with(".component")) {
+                            } else if (string_ends_with(path, ".component")) {
                                 format = PluginFormat::AAU;
-                            } else if (path.ends_with(".lua")) {
+                            } else if (string_ends_with(path, ".lua")) {
                                 format = PluginFormat::LUA;
-                            } else if (path.ends_with(".jsfx")) {
+                            } else if (string_ends_with(path, ".jsfx")) {
                                 format = PluginFormat::REAPER;
                             }
 
