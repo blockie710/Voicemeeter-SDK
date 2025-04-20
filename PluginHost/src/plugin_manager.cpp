@@ -4,6 +4,28 @@
 #include <fstream>
 #include <iostream>
 #include <chrono>
+#include <cstring>
+
+// For dynamic library loading
+#ifdef _WIN32
+    #include <windows.h>
+    #define DL_HANDLE HMODULE
+    #define DL_OPEN(path) LoadLibraryA(path)
+    #define DL_CLOSE(handle) FreeLibrary(handle)
+    #define DL_SYM(handle, name) GetProcAddress(handle, name)
+    #define DL_ERROR() GetLastError()
+    #define PATH_SEPARATOR "\\"
+#else
+    #include <dlfcn.h>
+    #define DL_HANDLE void*
+    #define DL_OPEN(path) dlopen(path, RTLD_LAZY)
+    #define DL_CLOSE(handle) dlclose(handle)
+    #define DL_SYM(handle, name) dlsym(handle, name)
+    #define DL_ERROR() dlerror()
+    #define PATH_SEPARATOR "/"
+#endif
+
+// For JSON serialization - using a header-only JSON library
 #include <nlohmann/json.hpp>
 
 namespace fs = std::filesystem;
@@ -23,7 +45,7 @@ PluginManager::PluginInfo::PluginInfo(const std::shared_ptr<PluginInstance>& plu
         // Default values for user metadata
         favorite = false;
         userRating = 0;
-        lastUsed = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+        lastUsed = std::chrono::system_clock::now();
         useCount = 1;
     }
 }
@@ -35,59 +57,10 @@ struct PluginManager::Impl {
     std::atomic<bool> scanning{false};
     std::atomic<float> scanProgress{0.0f};
     std::thread scanThread;
-    std::mutex pluginsMutex;
+    mutable std::mutex pluginsMutex;
     ScanProgressCallback progressCallback;
     PluginsChangedCallback pluginsChangedCallback;
 
-    // Platform-specific plugin paths
-    std::vector<std::string> getDefaultPluginPaths() {
-        std::vector<std::string> paths;
-        
-#ifdef _WIN32
-        // Windows default plugin paths
-        paths.push_back("C:\\Program Files\\Common Files\\VST3");
-        paths.push_back("C:\\Program Files\\Common Files\\VST2");
-        paths.push_back("C:\\Program Files\\Common Files\\Avid\\Audio\\Plug-Ins");
-        paths.push_back("C:\\Program Files\\VSTPlugins");
-        paths.push_back("C:\\Program Files\\Steinberg\\VSTPlugins");
-        
-        // REAPER paths
-        const char* appData = getenv("APPDATA");
-        if (appData) {
-            std::string reaperPath = std::string(appData) + "\\REAPER\\Effects";
-            paths.push_back(reaperPath);
-        }
-#elif __APPLE__
-        // macOS default plugin paths
-        paths.push_back("/Library/Audio/Plug-Ins/VST3");
-        paths.push_back("/Library/Audio/Plug-Ins/VST");
-        paths.push_back("/Library/Audio/Plug-Ins/Components");
-        
-        // User plugin paths
-        const char* home = getenv("HOME");
-        if (home) {
-            paths.push_back(std::string(home) + "/Library/Audio/Plug-Ins/VST3");
-            paths.push_back(std::string(home) + "/Library/Audio/Plug-Ins/VST");
-            paths.push_back(std::string(home) + "/Library/Audio/Plug-Ins/Components");
-        }
-#else
-        // Linux default plugin paths
-        paths.push_back("/usr/lib/vst3");
-        paths.push_back("/usr/lib/vst");
-        paths.push_back("/usr/lib/lv2");
-        
-        // User plugin paths
-        const char* home = getenv("HOME");
-        if (home) {
-            paths.push_back(std::string(home) + "/.vst3");
-            paths.push_back(std::string(home) + "/.vst");
-            paths.push_back(std::string(home) + "/.lv2");
-        }
-#endif
-
-        return paths;
-    }
-    
     // Check if a plugin at the given path is already discovered
     bool isPluginDiscovered(const std::string& path) {
         std::lock_guard<std::mutex> lock(pluginsMutex);
@@ -106,9 +79,14 @@ struct PluginManager::Impl {
     }
     
     // Scan a single file to see if it's a plugin
-    bool scanPluginFile(const std::string& path) {
+    bool scanPluginFile(const std::string& path, PluginManager* manager) {
         // Skip if already discovered
         if (isPluginDiscovered(path)) {
+            return false;
+        }
+        
+        // Check if this is a valid plugin file according to platform-specific rules
+        if (!manager->isValidPluginFile(path)) {
             return false;
         }
         
@@ -145,46 +123,37 @@ struct PluginManager::Impl {
         
         // Try to load the plugin to get its info
         auto plugin = scanner->loadPlugin(path, format);
-        if (!plugin) {
-            // Try other formats if initial guess failed
-            if (format == PluginFormat::VST3 && 
-                (extension == ".dll" || extension == ".so" || extension == ".dylib")) {
-                
-                // Try AAX
-                format = PluginFormat::AAX;
-                scanner = createPluginScanner(format);
-                if (scanner) {
-                    plugin = scanner->loadPlugin(path, format);
-                }
-                
-                // Try ARA if still not successful
-                if (!plugin) {
-                    format = PluginFormat::ARA;
-                    scanner = createPluginScanner(format);
-                    if (scanner) {
-                        plugin = scanner->loadPlugin(path, format);
-                    }
-                }
-                
-                // Try REAPER if still not successful
-                if (!plugin) {
-                    format = PluginFormat::REAPER;
-                    scanner = createPluginScanner(format);
-                    if (scanner) {
-                        plugin = scanner->loadPlugin(path, format);
-                    }
-                }
-            }
+        
+        // Try other formats if initial guess failed
+        if (!plugin && (extension == ".dll" || extension == ".so" || extension == ".dylib")) {
+            // Try each supported format
+            std::vector<PluginFormat> formatsToTry = {
+                PluginFormat::AAX, 
+                PluginFormat::ARA, 
+                PluginFormat::REAPER
+            };
             
-            // If all attempts failed, this is not a compatible plugin
-            if (!plugin) {
-                return false;
+            for (auto tryFormat : formatsToTry) {
+                scanner = createPluginScanner(tryFormat);
+                if (!scanner) continue;
+                
+                plugin = scanner->loadPlugin(path, tryFormat);
+                if (plugin) {
+                    format = tryFormat;
+                    break;
+                }
             }
+        }
+        
+        // If all attempts failed, this is not a compatible plugin
+        if (!plugin) {
+            return false;
         }
         
         // Create plugin info
         PluginInfo info(plugin);
         info.path = path;
+        info.format = format;
         
         // Add to discovered plugins
         addDiscoveredPlugin(path, info);
@@ -192,34 +161,53 @@ struct PluginManager::Impl {
     }
     
     // Scan a directory for plugins
-    void scanDirectoryInternal(const std::string& directory, bool recursive) {
+    void scanDirectoryInternal(const std::string& directory, bool recursive, PluginManager* manager) {
         try {
             if (!fs::exists(directory) || !fs::is_directory(directory)) {
                 return;
             }
             
             // Setup for recursive or non-recursive iteration
-            auto begin = recursive ? fs::recursive_directory_iterator(directory) : fs::directory_iterator(directory);
-            auto end = recursive ? fs::recursive_directory_iterator() : fs::directory_iterator();
-            
-            for (auto it = begin; it != end; ++it) {
-                // Skip if scanning was cancelled
-                if (!scanning) {
-                    return;
+            if (recursive) {
+                for (const auto& entry : fs::recursive_directory_iterator(directory)) {
+                    // Skip if scanning was cancelled
+                    if (!scanning) {
+                        return;
+                    }
+                    
+                    // Skip directories
+                    if (!fs::is_regular_file(entry)) {
+                        continue;
+                    }
+                    
+                    // Update progress callback
+                    if (progressCallback) {
+                        progressCallback(scanProgress, entry.path().string());
+                    }
+                    
+                    // Scan this file
+                    scanPluginFile(entry.path().string(), manager);
                 }
-                
-                // Skip directories
-                if (!fs::is_regular_file(*it)) {
-                    continue;
+            } else {
+                for (const auto& entry : fs::directory_iterator(directory)) {
+                    // Skip if scanning was cancelled
+                    if (!scanning) {
+                        return;
+                    }
+                    
+                    // Skip directories
+                    if (!fs::is_regular_file(entry)) {
+                        continue;
+                    }
+                    
+                    // Update progress callback
+                    if (progressCallback) {
+                        progressCallback(scanProgress, entry.path().string());
+                    }
+                    
+                    // Scan this file
+                    scanPluginFile(entry.path().string(), manager);
                 }
-                
-                // Update progress callback
-                if (progressCallback) {
-                    progressCallback(scanProgress, it->path().string());
-                }
-                
-                // Scan this file
-                scanPluginFile(it->path().string());
             }
         }
         catch (const std::exception& e) {
@@ -228,7 +216,7 @@ struct PluginManager::Impl {
     }
     
     // Start scanning all plugin paths
-    void startScan(bool async) {
+    void startScan(bool async, PluginManager* manager) {
         // If already scanning, do nothing
         if (scanning) {
             return;
@@ -237,7 +225,7 @@ struct PluginManager::Impl {
         scanning = true;
         scanProgress = 0.0f;
         
-        auto scanFunc = [this]() {
+        auto scanFunc = [this, manager]() {
             int totalPaths = pluginPaths.size();
             int currentPath = 0;
             
@@ -250,7 +238,7 @@ struct PluginManager::Impl {
                 }
                 
                 // Scan this path
-                scanDirectoryInternal(path, true);
+                scanDirectoryInternal(path, true, manager);
                 
                 // Stop if scanning was cancelled
                 if (!scanning) {
@@ -284,9 +272,95 @@ struct PluginManager::Impl {
     }
 };
 
+// Platform-specific default plugin paths
+std::vector<std::string> PluginManager::getDefaultPluginPaths() const {
+    std::vector<std::string> paths;
+    
+#ifdef _WIN32
+    // Windows default plugin paths
+    paths.push_back("C:\\Program Files\\Common Files\\VST3");
+    paths.push_back("C:\\Program Files\\Common Files\\VST2");
+    paths.push_back("C:\\Program Files\\Common Files\\Avid\\Audio\\Plug-Ins");
+    paths.push_back("C:\\Program Files\\VSTPlugins");
+    paths.push_back("C:\\Program Files\\Steinberg\\VSTPlugins");
+    
+    // User-specific paths
+    const char* appData = getenv("APPDATA");
+    if (appData) {
+        // REAPER paths
+        std::string reaperPath = std::string(appData) + "\\REAPER\\Effects";
+        paths.push_back(reaperPath);
+        
+        // VST3 paths
+        std::string vst3Path = std::string(appData) + "\\VST3";
+        paths.push_back(vst3Path);
+    }
+#elif defined(__APPLE__)
+    // macOS default plugin paths
+    paths.push_back("/Library/Audio/Plug-Ins/VST3");
+    paths.push_back("/Library/Audio/Plug-Ins/VST");
+    paths.push_back("/Library/Audio/Plug-Ins/Components");
+    
+    // User plugin paths
+    const char* home = getenv("HOME");
+    if (home) {
+        paths.push_back(std::string(home) + "/Library/Audio/Plug-Ins/VST3");
+        paths.push_back(std::string(home) + "/Library/Audio/Plug-Ins/VST");
+        paths.push_back(std::string(home) + "/Library/Audio/Plug-Ins/Components");
+    }
+#else
+    // Linux default plugin paths
+    paths.push_back("/usr/lib/vst3");
+    paths.push_back("/usr/lib/vst");
+    paths.push_back("/usr/lib/lv2");
+    
+    // User plugin paths
+    const char* home = getenv("HOME");
+    if (home) {
+        paths.push_back(std::string(home) + "/.vst3");
+        paths.push_back(std::string(home) + "/.vst");
+        paths.push_back(std::string(home) + "/.lv2");
+        
+        // XDG paths
+        const char* xdgData = getenv("XDG_DATA_HOME");
+        if (xdgData) {
+            paths.push_back(std::string(xdgData) + "/vst3");
+        } else if (home) {
+            paths.push_back(std::string(home) + "/.local/share/vst3");
+        }
+    }
+#endif
+
+    return paths;
+}
+
+bool PluginManager::isValidPluginFile(const std::string& path) const {
+    // Check if file exists and is readable
+    if (!fs::exists(path) || !fs::is_regular_file(path)) {
+        return false;
+    }
+
+    // Get file extension
+    std::string extension = fs::path(path).extension().string();
+    std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
+    
+    // Check extension based on platform
+#ifdef _WIN32
+    // Windows supported extensions
+    return extension == ".dll" || extension == ".vst3" || extension == ".lua" || extension == ".jsfx";
+#elif defined(__APPLE__)
+    // macOS supported extensions
+    return extension == ".vst" || extension == ".vst3" || extension == ".component" || 
+           extension == ".dylib" || extension == ".lua" || extension == ".jsfx";
+#else
+    // Linux supported extensions
+    return extension == ".so" || extension == ".vst3" || extension == ".lua" || extension == ".jsfx";
+#endif
+}
+
 PluginManager::PluginManager() : m_impl(std::make_unique<Impl>()) {
     // Initialize with default plugin paths
-    m_impl->pluginPaths = m_impl->getDefaultPluginPaths();
+    m_impl->pluginPaths = getDefaultPluginPaths();
 }
 
 PluginManager::~PluginManager() {
@@ -320,7 +394,7 @@ std::vector<std::string> PluginManager::getPluginPaths() const {
 
 void PluginManager::autoScanForPlugins(bool async) {
     // Start scanning all paths
-    m_impl->startScan(async);
+    m_impl->startScan(async, this);
 }
 
 void PluginManager::scanDirectory(const std::string& directory, bool recursive, bool async) {
@@ -338,7 +412,7 @@ void PluginManager::scanDirectory(const std::string& directory, bool recursive, 
         }
         
         // Scan the directory
-        m_impl->scanDirectoryInternal(directory, recursive);
+        m_impl->scanDirectoryInternal(directory, recursive, this);
         
         // Update final progress
         m_impl->scanProgress = 1.0f;
@@ -555,80 +629,6 @@ std::shared_ptr<PluginInstance> PluginManager::loadPlugin(const std::string& pat
     // Update usage metadata if successful
     if (plugin) {
         PluginInfo& mutableInfo = m_impl->discoveredPlugins[path];
-        mutableInfo.lastUsed = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-        mutableInfo.useCount++;
-    }
-    
-    return plugin;
-}
-
-void PluginManager::markAsFavorite(const std::string& path, bool favorite) {
-    std::lock_guard<std::mutex> lock(m_impl->pluginsMutex);
-    
-    auto it = m_impl->discoveredPlugins.find(path);
-    if (it != m_impl->discoveredPlugins.end()) {
-        it->second.favorite = favorite;
-    }
-}
-
-void PluginManager::setRating(const std::string& path, int rating) {
-    std::lock_guard<std::mutex> lock(m_impl->pluginsMutex);
-    
-    auto it = m_impl->discoveredPlugins.find(path);
-    if (it != m_impl->discoveredPlugins.end()) {
-        it->second.userRating = std::max(0, std::min(5, rating)); // Clamp to 0-5
-    }
-}
-
-void PluginManager::addTag(const std::string& path, const std::string& tag) {
-    std::lock_guard<std::mutex> lock(m_impl->pluginsMutex);
-    
-    auto it = m_impl->discoveredPlugins.find(path);
-    if (it != m_impl->discoveredPlugins.end()) {
-        // Add tag if it doesn't exist
-        auto& tags = it->second.tags;
-        if (std::find(tags.begin(), tags.end(), tag) == tags.end()) {
-            tags.push_back(tag);
-        }
-    }
-}
-
-void PluginManager::removeTag(const std::string& path, const std::string& tag) {
-    std::lock_guard<std::mutex> lock(m_impl->pluginsMutex);
-    
-    auto it = m_impl->discoveredPlugins.find(path);
-    if (it != m_impl->discoveredPlugins.end()) {
-        // Remove tag if it exists
-        auto& tags = it->second.tags;
-        tags.erase(std::remove(tags.begin(), tags.end(), tag), tags.end());
-    }
-}
-
-void PluginManager::updateLastUsed(const std::string& path) {
-    std::lock_guard<std::mutex> lock(m_impl->pluginsMutex);
-    
-    auto it = m_impl->discoveredPlugins.find(path);
-    if (it != m_impl->discoveredPlugins.end()) {
-        it->second.lastUsed = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-    }
-}
-
-void PluginManager::incrementUseCount(const std::string& path) {
-    std::lock_guard<std::mutex> lock(m_impl->pluginsMutex);
-    
-    auto it = m_impl->discoveredPlugins.find(path);
-    if (it != m_impl->discoveredPlugins.end()) {
-        it->second.useCount++;
-    }
-}
-
-std::set<std::string> PluginManager::getAllCategories() const {
-    std::lock_guard<std::mutex> lock(m_impl->pluginsMutex);
-    std::set<std::string> categories;
-    
-    for (const auto& pair : m_impl->discoveredPlugins) {
-        if (!pair.second.category.empty()) {
-            categories.insert(pair.second.category);
         }
     }
     
