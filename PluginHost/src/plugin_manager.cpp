@@ -798,47 +798,37 @@ bool PluginManager::loadSettings(const std::string& path) {
                 
                 if (item.contains("path") && item["path"].is_string()) {
                     path = item["path"].get<std::string>();
+                    
+                    // Update existing plugin info or create new one if it doesn't exist
+                    PluginInfo& info = m_impl->discoveredPlugins[path];
+                    
+                    // Set basic info
+                    info.path = path;
+                    
+                    // Load user metadata
+                    if (item.contains("favorite")) {
+                        info.favorite = item["favorite"].get<bool>();
+                    }
+                    
+                    if (item.contains("rating")) {
+                        info.userRating = item["rating"].get<int>();
+                    }
+                    
+                    if (item.contains("useCount")) {
+                        info.useCount = item["useCount"].get<int>();
+                    }
+                    
+                    if (item.contains("tags") && item["tags"].is_array()) {
+                        info.tags.clear();
+                        for (const auto& tag : item["tags"]) {
+                            if (tag.is_string()) {
+                                info.tags.push_back(tag.get<std::string>());
+                            }
+                        }
+                    }
                 } else {
                     continue;
                 }
-                
-                // Update existing plugin or create a new entry
-                auto it = m_impl->discoveredPlugins.find(path);
-                PluginInfo info;
-                
-                if (it != m_impl->discoveredPlugins.end()) {
-                    info = it->second;
-                } else {
-                    info.path = path;
-                }
-                
-                // Update metadata
-                if (item.contains("favorite") && item["favorite"].is_boolean()) {
-                    info.favorite = item["favorite"].get<bool>();
-                }
-                
-                if (item.contains("rating") && item["rating"].is_number()) {
-                    info.userRating = item["rating"].get<int>();
-                }
-                
-                if (item.contains("lastUsed") && item["lastUsed"].is_number()) {
-                    info.lastUsed = item["lastUsed"].get<time_t>();
-                }
-                
-                if (item.contains("useCount") && item["useCount"].is_number()) {
-                    info.useCount = item["useCount"].get<int>();
-                }
-                
-                if (item.contains("tags") && item["tags"].is_array()) {
-                    info.tags.clear();
-                    for (const auto& tag : item["tags"]) {
-                        if (tag.is_string()) {
-                            info.tags.push_back(tag.get<std::string>());
-                        }
-                    }
-                }
-                
-                m_impl->discoveredPlugins[path] = info;
             }
         }
         

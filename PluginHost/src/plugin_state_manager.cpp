@@ -205,40 +205,96 @@ bool PluginStateManager::deserializeFromJson(const std::string& jsonStr, ChainSt
     try {
         json j = json::parse(jsonStr);
         
-        // Parse main chain properties
-        state.name = j["name"].get<std::string>();
-        state.sampleRate = j["sampleRate"].get<double>();
-        state.blockSize = j["blockSize"].get<int>();
-        state.bypassAll = j["bypassAll"].get<bool>();
+        // Deserialize main chain properties
+        if (j.contains("name")) {
+            state.name = j["name"].get<std::string>();
+        } else {
+            state.name = "Unnamed Preset";
+        }
         
-        // Parse plugins
+        if (j.contains("sampleRate")) {
+            state.sampleRate = j["sampleRate"].get<double>();
+        } else {
+            state.sampleRate = 48000.0;
+        }
+        
+        if (j.contains("blockSize")) {
+            state.blockSize = j["blockSize"].get<int>();
+        } else {
+            state.blockSize = 1024;
+        }
+        
+        if (j.contains("bypassAll")) {
+            state.bypassAll = j["bypassAll"].get<bool>();
+        } else {
+            state.bypassAll = false;
+        }
+        
+        // Clear existing plugins
         state.plugins.clear();
-        for (const auto& pluginJson : j["plugins"]) {
-            PluginState plugin;
-            plugin.pluginPath = pluginJson["path"].get<std::string>();
-            plugin.format = static_cast<PluginFormat>(pluginJson["format"].get<int>());
-            plugin.enabled = pluginJson["enabled"].get<bool>();
-            plugin.name = pluginJson["name"].get<std::string>();
-            plugin.vendor = pluginJson["vendor"].get<std::string>();
-            plugin.version = pluginJson["version"].get<std::string>();
-            
-            // Parse parameters
-            plugin.parameters.clear();
-            for (const auto& paramJson : pluginJson["parameters"]) {
-                PluginState::ParameterState param;
-                param.id = paramJson["id"].get<std::string>();
-                param.name = paramJson["name"].get<std::string>();
-                param.value = paramJson["value"].get<double>();
-                plugin.parameters.push_back(param);
+        
+        // Deserialize plugins array
+        if (j.contains("plugins") && j["plugins"].is_array()) {
+            for (const auto& pluginJson : j["plugins"]) {
+                PluginState plugin;
+                
+                if (pluginJson.contains("path")) {
+                    plugin.pluginPath = pluginJson["path"].get<std::string>();
+                }
+                
+                if (pluginJson.contains("format")) {
+                    plugin.format = static_cast<PluginFormat>(pluginJson["format"].get<int>());
+                }
+                
+                if (pluginJson.contains("enabled")) {
+                    plugin.enabled = pluginJson["enabled"].get<bool>();
+                }
+                
+                if (pluginJson.contains("name")) {
+                    plugin.name = pluginJson["name"].get<std::string>();
+                }
+                
+                if (pluginJson.contains("vendor")) {
+                    plugin.vendor = pluginJson["vendor"].get<std::string>();
+                }
+                
+                if (pluginJson.contains("version")) {
+                    plugin.version = pluginJson["version"].get<std::string>();
+                }
+                
+                // Deserialize parameters
+                if (pluginJson.contains("parameters") && pluginJson["parameters"].is_array()) {
+                    for (const auto& paramJson : pluginJson["parameters"]) {
+                        PluginState::ParameterState param;
+                        
+                        if (paramJson.contains("id")) {
+                            param.id = paramJson["id"].get<std::string>();
+                        }
+                        
+                        if (paramJson.contains("name")) {
+                            param.name = paramJson["name"].get<std::string>();
+                        }
+                        
+                        if (paramJson.contains("value")) {
+                            param.value = paramJson["value"].get<double>();
+                        }
+                        
+                        plugin.parameters.push_back(param);
+                    }
+                }
+                
+                state.plugins.push_back(plugin);
             }
-            
-            state.plugins.push_back(plugin);
         }
         
         return true;
     }
     catch (const json::exception& e) {
         std::cerr << "JSON parsing error: " << e.what() << std::endl;
+        return false;
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Error deserializing state: " << e.what() << std::endl;
         return false;
     }
 }

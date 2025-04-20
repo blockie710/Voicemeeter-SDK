@@ -208,3 +208,9 @@ void AudioProcessor::releaseResources() {
         }
     }
 }
+
+// Missing mutex member variable declaration
+private:
+    // Add mutex for thread safety
+    std::mutex m_processMutex;
+    bool m_notifyPlugins = false; // Flag for notifying plugins about bypass state

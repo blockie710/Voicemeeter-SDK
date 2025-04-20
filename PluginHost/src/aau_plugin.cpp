@@ -154,6 +154,10 @@ std::string AAUPlugin::getVersion() const {
     return m_version;
 }
 
+const char* AAUPlugin::getFormatName() const {
+    return "AudioUnit";
+}
+
 // Audio processing
 void AAUPlugin::prepareToPlay(double sampleRate, int maxSamplesPerBlock) {
     m_sampleRate = sampleRate;

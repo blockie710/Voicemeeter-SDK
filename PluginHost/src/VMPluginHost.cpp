@@ -105,7 +105,7 @@ float VMPluginHost::GetParameter(int index) const {
         return 0.0f;
     }
     
-    return static_cast<float>(m_plugin->getParameter(index).currentValue);
+    return static_cast<float>(m_plugin->getParameterValue(index));
 }
 
 bool VMPluginHost::SetParameter(int index, float value) {
@@ -121,9 +121,14 @@ std::string VMPluginHost::GetParameterDisplay(int index) const {
         return "";
     }
     
-    // This would ideally come from the plugin's getParameterDisplay, but we're simplifying
     auto param = m_plugin->getParameter(index);
-    return std::to_string(param.currentValue);
+    // Format the parameter value as a string with appropriate precision
+    std::ostringstream ss;
+    ss << std::fixed << std::setprecision(2) << m_plugin->getParameterValue(index);
+    if (!param.unit.empty()) {
+        ss << " " << param.unit;
+    }
+    return ss.str();
 }
 
 bool VMPluginHost::GetParameterProperties(int index, float* min, float* max, float* defaultVal) {
