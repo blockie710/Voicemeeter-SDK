@@ -13,6 +13,11 @@
 #include <chrono>
 #include <ctime>
 
+#ifdef _WIN32
+#include <windows.h>
+#include <strsafe.h>
+#endif
+
 // Global logger for plugin operations
 class PluginLogger {
 private:
@@ -66,6 +71,91 @@ public:
 
 // Global logger instance
 static PluginLogger g_logger;
+
+#ifdef _WIN32
+// Windows DLL handle for Voicemeeter Remote
+static HMODULE g_hVoicemeeterRemote = nullptr;
+
+// Load the Voicemeeter Remote DLL on Windows
+bool loadVoicemeeterRemoteDLL() {
+    char szDllName[512];
+    szDllName[0] = 0;
+    
+    // Get the Voicemeeter installation path from registry
+    HKEY hKey;
+    DWORD dwSize = 512;
+    DWORD dwType = REG_SZ;
+    long regResult;
+    
+    regResult = RegOpenKeyEx(HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\VB:Voicemeeter {17359A74-1236-5467}", 0, KEY_READ, &hKey);
+    if (regResult != ERROR_SUCCESS) {
+        // Try the 32-bit registry view for 64-bit Windows
+        regResult = RegOpenKeyEx(HKEY_LOCAL_MACHINE, "SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\VB:Voicemeeter {17359A74-1236-5467}", 0, KEY_READ, &hKey);
+        if (regResult != ERROR_SUCCESS) {
+            g_logger.log(PluginLogger::Level::Error, "Voicemeeter is not installed (registry key not found)");
+            return false;
+        }
+    }
+    
+    regResult = RegQueryValueEx(hKey, "UninstallString", 0, &dwType, (unsigned char*)szDllName, &dwSize);
+    RegCloseKey(hKey);
+    
+    if (regResult != ERROR_SUCCESS || szDllName[0] == 0) {
+        g_logger.log(PluginLogger::Level::Error, "Voicemeeter installation path not found in registry");
+        return false;
+    }
+    
+    // Remove the "uninstall.exe" part to get the installation directory
+    char* p = strrchr(szDllName, '\\');
+    if (p == nullptr) {
+        g_logger.log(PluginLogger::Level::Error, "Invalid Voicemeeter installation path");
+        return false;
+    }
+    
+    *(p + 1) = 0; // Terminate the string after the last backslash
+    
+    // Use the appropriate DLL based on architecture
+    if (sizeof(void*) == 8) {
+        strcat(szDllName, "VoicemeeterRemote64.dll");
+    } else {
+        strcat(szDllName, "VoicemeeterRemote.dll");
+    }
+    
+    // Load the DLL
+    g_hVoicemeeterRemote = LoadLibrary(szDllName);
+    if (g_hVoicemeeterRemote == nullptr) {
+        g_logger.log(PluginLogger::Level::Error, "Failed to load VoicemeeterRemote DLL: " + std::string(szDllName));
+        return false;
+    }
+    
+    g_logger.log(PluginLogger::Level::Info, "Successfully loaded VoicemeeterRemote DLL: " + std::string(szDllName));
+    return true;
+}
+
+// Unload the Voicemeeter Remote DLL on Windows
+void unloadVoicemeeterRemoteDLL() {
+    if (g_hVoicemeeterRemote) {
+        FreeLibrary(g_hVoicemeeterRemote);
+        g_hVoicemeeterRemote = nullptr;
+        g_logger.log(PluginLogger::Level::Info, "Unloaded VoicemeeterRemote DLL");
+    }
+}
+
+// Get a procedure address from the Voicemeeter Remote DLL
+void* getVoicemeeterProcAddress(const char* procName) {
+    if (!g_hVoicemeeterRemote) {
+        g_logger.log(PluginLogger::Level::Error, "Cannot get Voicemeeter procedure address: DLL not loaded");
+        return nullptr;
+    }
+    
+    void* procAddress = GetProcAddress(g_hVoicemeeterRemote, procName);
+    if (!procAddress) {
+        g_logger.log(PluginLogger::Level::Error, "Failed to get Voicemeeter procedure address: " + std::string(procName));
+    }
+    
+    return procAddress;
+}
+#endif // _WIN32
 
 // Initialize the logger
 bool initPluginLogger(const std::string& logDir) {
