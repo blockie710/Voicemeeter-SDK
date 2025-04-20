@@ -1,5 +1,5 @@
 /******************************************************************************/
-/* Voicemeeter Remote API.                                  V.Burel©2015-2023 */
+/* Voicemeeter Remote API.                                  V.Burelï¿½2015-2023 */
 /******************************************************************************/
 /* This Library allows communication with Voicemeeter applications            */
 /* 4 Client Applications can be connected to remote Voicemeeter.              */
@@ -27,6 +27,20 @@
 extern "C" {
 #endif
 
+// Add platform compatibility macros for Linux
+#ifdef _WIN32
+    // Windows platform
+    #define VM_IMPORT __declspec(dllimport)
+    #define VM_CALL __stdcall
+#else
+    // Linux platform
+    #define VM_IMPORT 
+    #define VM_CALL
+    #define __stdcall
+    #ifndef long
+        typedef int long;
+    #endif
+#endif
 
 #define VBVMR_RESULT_OK			0
 
@@ -47,14 +61,14 @@ extern "C" {
 				-2: unexpected login (logout was expected before).
 	*/
 
-long __stdcall VBVMR_Login(void);
+long VM_CALL VBVMR_Login(void);
 
 	/** 
 	@brief Close Communication Pipe With Voicemeeter (typically called on software end).
 	@return : 0 if ok.
 	*/
 
-long __stdcall VBVMR_Logout(void);
+long VM_CALL VBVMR_Logout(void);
 
 
 	/** 
@@ -65,7 +79,7 @@ long __stdcall VBVMR_Logout(void);
 				-2: unknown vType number
 	*/
 
-long __stdcall VBVMR_RunVoicemeeter(long vType);
+long VM_CALL VBVMR_RunVoicemeeter(long vType);
 
 
 /** @}  */
@@ -117,7 +131,7 @@ long __stdcall VBVMR_RunVoicemeeter(long vType);
 				-2: no server.
 	*/
 
-long __stdcall VBVMR_GetVoicemeeterType(long * pType);
+long VM_CALL VBVMR_GetVoicemeeterType(long * pType);
 
 	/** 
 	@brief Get Voicemeeter Version
@@ -132,7 +146,7 @@ long __stdcall VBVMR_GetVoicemeeterType(long * pType);
 				-2: no server.
 	*/
 
-long __stdcall VBVMR_GetVoicemeeterVersion(long * pVersion);
+long VM_CALL VBVMR_GetVoicemeeterVersion(long * pVersion);
 
 
 /** @}  */
@@ -174,7 +188,7 @@ long __stdcall VBVMR_GetVoicemeeterVersion(long * pVersion);
 				-2: no server.
 	*/
 
-long __stdcall VBVMR_IsParametersDirty(void);
+long VM_CALL VBVMR_IsParametersDirty(void);
 
 	/** 
 	@brief get parameter value.
@@ -187,7 +201,7 @@ long __stdcall VBVMR_IsParametersDirty(void);
 				-5: structure mismatch
 	*/
 
-long __stdcall VBVMR_GetParameterFloat(char * szParamName, float * pValue);
+long VM_CALL VBVMR_GetParameterFloat(char * szParamName, float * pValue);
 
 	/** 
 	@brief get parameter value.
@@ -200,8 +214,8 @@ long __stdcall VBVMR_GetParameterFloat(char * szParamName, float * pValue);
 				-5: structure mismatch
 	*/
 
-long __stdcall VBVMR_GetParameterStringA(char * szParamName, char * szString);
-long __stdcall VBVMR_GetParameterStringW(char * szParamName, unsigned short * wszString);
+long VM_CALL VBVMR_GetParameterStringA(char * szParamName, char * szString);
+long VM_CALL VBVMR_GetParameterStringW(char * szParamName, unsigned short * wszString);
 
 /** @}  */
 
@@ -281,7 +295,7 @@ long __stdcall VBVMR_GetParameterStringW(char * szParamName, unsigned short * ws
 				-4: out of range
 	*/
 
-long __stdcall VBVMR_GetLevel(long nType, long nuChannel, float * pValue);
+long VM_CALL VBVMR_GetLevel(long nType, long nuChannel, float * pValue);
 
 
 	/** 
@@ -302,7 +316,7 @@ long __stdcall VBVMR_GetLevel(long nType, long nuChannel, float * pValue);
 	*/
 
 
-long __stdcall VBVMR_GetMidiMessage(unsigned char *pMIDIBuffer, long nbByteMax);
+long VM_CALL VBVMR_GetMidiMessage(unsigned char *pMIDIBuffer, long nbByteMax);
 
 
 	/** 
@@ -320,7 +334,7 @@ long __stdcall VBVMR_GetMidiMessage(unsigned char *pMIDIBuffer, long nbByteMax);
 	*/
 
 
-long __stdcall VBVMR_SendMidiMessage(unsigned char *pMIDIBuffer, long nbByte);
+long VM_CALL VBVMR_SendMidiMessage(unsigned char *pMIDIBuffer, long nbByte);
 
 
 /** @}  */
@@ -359,7 +373,7 @@ long __stdcall VBVMR_SendMidiMessage(unsigned char *pMIDIBuffer, long nbByte);
 				-3: unknown parameter
 	*/
 
-long __stdcall VBVMR_SetParameterFloat(char * szParamName, float Value);
+long VM_CALL VBVMR_SetParameterFloat(char * szParamName, float Value);
 
 
 
@@ -380,8 +394,8 @@ long __stdcall VBVMR_SetParameterFloat(char * szParamName, float Value);
 	*/
 
 
-long __stdcall VBVMR_SetParameterStringA(char * szParamName, char * szString);
-long __stdcall VBVMR_SetParameterStringW(char * szParamName, unsigned short * wszString);
+long VM_CALL VBVMR_SetParameterStringA(char * szParamName, char * szString);
+long VM_CALL VBVMR_SetParameterStringW(char * szParamName, unsigned short * wszString);
 
 
 
@@ -407,8 +421,8 @@ long __stdcall VBVMR_SetParameterStringW(char * szParamName, unsigned short * ws
 				-4: unexpected error
 	*/
 
-long __stdcall VBVMR_SetParameters(char * szParamScript);
-long __stdcall VBVMR_SetParametersW(unsigned short * szParamScript);
+long VM_CALL VBVMR_SetParameters(char * szParamScript);
+long VM_CALL VBVMR_SetParametersW(unsigned short * szParamScript);
 
 
 /** @}  */
@@ -441,7 +455,7 @@ long __stdcall VBVMR_SetParametersW(unsigned short * szParamScript);
 	@return : return number of device found.
 	*/
 
-long __stdcall VBVMR_Output_GetDeviceNumber(void);
+long VM_CALL VBVMR_Output_GetDeviceNumber(void);
 
 	/** 
 	@brief Return pointer on Output Device Descriptor according index
@@ -452,15 +466,15 @@ long __stdcall VBVMR_Output_GetDeviceNumber(void);
 	@return :	 0: OK (no error).
 	*/
 
-long __stdcall VBVMR_Output_GetDeviceDescA(long zindex, long * nType, char * szDeviceName, char * szHardwareId);
-long __stdcall VBVMR_Output_GetDeviceDescW(long zindex, long * nType, unsigned short * wszDeviceName, unsigned short * wszHardwareId);
+long VM_CALL VBVMR_Output_GetDeviceDescA(long zindex, long * nType, char * szDeviceName, char * szHardwareId);
+long VM_CALL VBVMR_Output_GetDeviceDescW(long zindex, long * nType, unsigned short * wszDeviceName, unsigned short * wszHardwareId);
 
 	/** 
 	@brief Get number of Audio Input Device available on the system
 	@return : return number of device found.
 	*/
 
-long __stdcall VBVMR_Input_GetDeviceNumber(void);
+long VM_CALL VBVMR_Input_GetDeviceNumber(void);
 
 	/** 
 	@brief Return pointer on Input Device Descriptor according index
@@ -471,8 +485,8 @@ long __stdcall VBVMR_Input_GetDeviceNumber(void);
 	@return :	 0: OK (no error).
 	*/
 
-long __stdcall VBVMR_Input_GetDeviceDescA(long zindex, long * nType, char * szDeviceName, char * szHardwareId);
-long __stdcall VBVMR_Input_GetDeviceDescW(long zindex, long * nType, unsigned short * wszDeviceName, unsigned short * wszHardwareId);
+long VM_CALL VBVMR_Input_GetDeviceDescA(long zindex, long * nType, char * szDeviceName, char * szHardwareId);
+long VM_CALL VBVMR_Input_GetDeviceDescW(long zindex, long * nType, unsigned short * wszDeviceName, unsigned short * wszHardwareId);
 
 
 
@@ -534,7 +548,7 @@ typedef struct tagVBVMR_AUDIOBUFFER
 	*/
 
 
-typedef long (__stdcall *T_VBVMR_VBAUDIOCALLBACK)(void * lpUser, long nCommand, void * lpData, long nnn);
+typedef long (VM_CALL *T_VBVMR_VBAUDIOCALLBACK)(void * lpUser, long nCommand, void * lpData, long nnn);
 
 
 #define  VBVMR_CBCOMMAND_STARTING		1	//command to initialize data according SR and buffer size
@@ -678,7 +692,7 @@ typedef long (__stdcall *T_VBVMR_VBAUDIOCALLBACK)(void * lpUser, long nCommand, 
 				 1: callback already registered (by another application).
 	*/
 
-long __stdcall VBVMR_AudioCallbackRegister(long mode, T_VBVMR_VBAUDIOCALLBACK pCallback, void * lpUser, char szClientName[64]);
+long VM_CALL VBVMR_AudioCallbackRegister(long mode, T_VBVMR_VBAUDIOCALLBACK pCallback, void * lpUser, char szClientName[64]);
 
 #define VBVMR_AUDIOCALLBACK_IN		0x00000001	//to process input insert
 #define VBVMR_AUDIOCALLBACK_OUT		0x00000002  //to process output bus insert
@@ -693,8 +707,8 @@ long __stdcall VBVMR_AudioCallbackRegister(long mode, T_VBVMR_VBAUDIOCALLBACK pC
 				-2: no callback registred.
 	*/
 
-long __stdcall VBVMR_AudioCallbackStart(void);
-long __stdcall VBVMR_AudioCallbackStop(void);
+long VM_CALL VBVMR_AudioCallbackStart(void);
+long VM_CALL VBVMR_AudioCallbackStop(void);
 
 
 	/** 
@@ -706,7 +720,7 @@ long __stdcall VBVMR_AudioCallbackStop(void);
 				 1: callback already unregistered.
 	*/
 
-long __stdcall VBVMR_AudioCallbackUnregister(void);
+long VM_CALL VBVMR_AudioCallbackUnregister(void);
 
 
 
@@ -737,7 +751,7 @@ long __stdcall VBVMR_AudioCallbackUnregister(void);
 				-2: no server.
 	*/
 
-long __stdcall VBVMR_MacroButton_IsDirty(void);
+long VM_CALL VBVMR_MacroButton_IsDirty(void);
 
 	/** 
 	@brief get current status of a given button.
@@ -751,7 +765,7 @@ long __stdcall VBVMR_MacroButton_IsDirty(void);
 				-5: structure mismatch
 	*/
 
-long __stdcall VBVMR_MacroButton_GetStatus(long nuLogicalButton, float * pValue, long bitmode);
+long VM_CALL VBVMR_MacroButton_GetStatus(long nuLogicalButton, float * pValue, long bitmode);
 
 	/** 
 	@brief set current button value.
@@ -765,7 +779,7 @@ long __stdcall VBVMR_MacroButton_GetStatus(long nuLogicalButton, float * pValue,
 				-5: structure mismatch
 	*/
 
-long __stdcall VBVMR_MacroButton_SetStatus(long nuLogicalButton, float fValue, long bitmode);
+long VM_CALL VBVMR_MacroButton_SetStatus(long nuLogicalButton, float fValue, long bitmode);
 
 #define VBVMR_MACROBUTTON_MODE_DEFAULT		0x00000000	//PUSH or RELEASE button 
 #define VBVMR_MACROBUTTON_MODE_STATEONLY	0x00000002	//change Displayed State only
@@ -788,44 +802,44 @@ long __stdcall VBVMR_MacroButton_SetStatus(long nuLogicalButton, float fValue, l
 /*                          'C' STRUCTURED INTERFACE                          */
 /******************************************************************************/
 
-typedef long (__stdcall *T_VBVMR_Login)(void);
-typedef long (__stdcall *T_VBVMR_Logout)(void);
-typedef long (__stdcall *T_VBVMR_RunVoicemeeter)(long vType);
+typedef long (VM_CALL *T_VBVMR_Login)(void);
+typedef long (VM_CALL *T_VBVMR_Logout)(void);
+typedef long (VM_CALL *T_VBVMR_RunVoicemeeter)(long vType);
 
-typedef long (__stdcall *T_VBVMR_GetVoicemeeterType)(long * pType);
-typedef long (__stdcall *T_VBVMR_GetVoicemeeterVersion)(long * pVersion);
+typedef long (VM_CALL *T_VBVMR_GetVoicemeeterType)(long * pType);
+typedef long (VM_CALL *T_VBVMR_GetVoicemeeterVersion)(long * pVersion);
 
-typedef long (__stdcall *T_VBVMR_IsParametersDirty)(void);
-typedef long (__stdcall *T_VBVMR_GetParameterFloat)(char * szParamName, float * pValue);
-typedef long (__stdcall *T_VBVMR_GetParameterStringA)(char * szParamName, char * szString);
-typedef long (__stdcall *T_VBVMR_GetParameterStringW)(char * szParamName, unsigned short * wszString);
+typedef long (VM_CALL *T_VBVMR_IsParametersDirty)(void);
+typedef long (VM_CALL *T_VBVMR_GetParameterFloat)(char * szParamName, float * pValue);
+typedef long (VM_CALL *T_VBVMR_GetParameterStringA)(char * szParamName, char * szString);
+typedef long (VM_CALL *T_VBVMR_GetParameterStringW)(char * szParamName, unsigned short * wszString);
 
 
-typedef long (__stdcall *T_VBVMR_GetLevel)(long nType, long nuChannel, float * pValue);
-typedef long (__stdcall *T_VBVMR_GetMidiMessage)(unsigned char *pMIDIBuffer, long nbByteMax);
-typedef long (__stdcall *T_VBVMR_SendMidiMessage)(unsigned char *pMIDIBuffer, long nbByteMax);
+typedef long (VM_CALL *T_VBVMR_GetLevel)(long nType, long nuChannel, float * pValue);
+typedef long (VM_CALL *T_VBVMR_GetMidiMessage)(unsigned char *pMIDIBuffer, long nbByteMax);
+typedef long (VM_CALL *T_VBVMR_SendMidiMessage)(unsigned char *pMIDIBuffer, long nbByteMax);
 
-typedef long (__stdcall *T_VBVMR_SetParameterFloat)(char * szParamName, float Value);
-typedef long (__stdcall *T_VBVMR_SetParameters)(char * szParamScript);
-typedef long (__stdcall *T_VBVMR_SetParametersW)(unsigned short * szParamScript);
-typedef long (__stdcall *T_VBVMR_SetParameterStringA)(char * szParamName, char * szString);
-typedef long (__stdcall *T_VBVMR_SetParameterStringW)(char * szParamName, unsigned short * wszString);
+typedef long (VM_CALL *T_VBVMR_SetParameterFloat)(char * szParamName, float Value);
+typedef long (VM_CALL *T_VBVMR_SetParameters)(char * szParamScript);
+typedef long (VM_CALL *T_VBVMR_SetParametersW)(unsigned short * szParamScript);
+typedef long (VM_CALL *T_VBVMR_SetParameterStringA)(char * szParamName, char * szString);
+typedef long (VM_CALL *T_VBVMR_SetParameterStringW)(char * szParamName, unsigned short * wszString);
 
-typedef long (__stdcall *T_VBVMR_Output_GetDeviceNumber)(void);
-typedef long (__stdcall *T_VBVMR_Output_GetDeviceDescA)(long zindex, long * nType, char * szDeviceName, char * szHardwareId);
-typedef long (__stdcall *T_VBVMR_Output_GetDeviceDescW)(long zindex, long * nType, unsigned short * wszDeviceName, unsigned short * wszHardwareId);
-typedef long (__stdcall *T_VBVMR_Input_GetDeviceNumber)(void);
-typedef long (__stdcall *T_VBVMR_Input_GetDeviceDescA)(long zindex, long * nType, char * szDeviceName, char * szHardwareId);
-typedef long (__stdcall *T_VBVMR_Input_GetDeviceDescW)(long zindex, long * nType, unsigned short * wszDeviceName, unsigned short * wszHardwareId);
+typedef long (VM_CALL *T_VBVMR_Output_GetDeviceNumber)(void);
+typedef long (VM_CALL *T_VBVMR_Output_GetDeviceDescA)(long zindex, long * nType, char * szDeviceName, char * szHardwareId);
+typedef long (VM_CALL *T_VBVMR_Output_GetDeviceDescW)(long zindex, long * nType, unsigned short * wszDeviceName, unsigned short * wszHardwareId);
+typedef long (VM_CALL *T_VBVMR_Input_GetDeviceNumber)(void);
+typedef long (VM_CALL *T_VBVMR_Input_GetDeviceDescA)(long zindex, long * nType, char * szDeviceName, char * szHardwareId);
+typedef long (VM_CALL *T_VBVMR_Input_GetDeviceDescW)(long zindex, long * nType, unsigned short * wszDeviceName, unsigned short * wszHardwareId);
 
-typedef long (__stdcall *T_VBVMR_AudioCallbackRegister)(long mode, T_VBVMR_VBAUDIOCALLBACK pCallback, void * lpUser, char szClientName[64]);
-typedef long (__stdcall *T_VBVMR_AudioCallbackStart)(void);
-typedef long (__stdcall *T_VBVMR_AudioCallbackStop)(void);
-typedef long (__stdcall *T_VBVMR_AudioCallbackUnregister)(void);
+typedef long (VM_CALL *T_VBVMR_AudioCallbackRegister)(long mode, T_VBVMR_VBAUDIOCALLBACK pCallback, void * lpUser, char szClientName[64]);
+typedef long (VM_CALL *T_VBVMR_AudioCallbackStart)(void);
+typedef long (VM_CALL *T_VBVMR_AudioCallbackStop)(void);
+typedef long (VM_CALL *T_VBVMR_AudioCallbackUnregister)(void);
 
-typedef long (__stdcall *T_VBVMR_MacroButton_IsDirty)(void);
-typedef long (__stdcall *T_VBVMR_MacroButton_GetStatus)(long nuLogicalButton, float * pValue, long bitmode);
-typedef long (__stdcall *T_VBVMR_MacroButton_SetStatus)(long nuLogicalButton, float fValue, long bitmode);
+typedef long (VM_CALL *T_VBVMR_MacroButton_IsDirty)(void);
+typedef long (VM_CALL *T_VBVMR_MacroButton_GetStatus)(long nuLogicalButton, float * pValue, long bitmode);
+typedef long (VM_CALL *T_VBVMR_MacroButton_SetStatus)(long nuLogicalButton, float fValue, long bitmode);
 
 
 
@@ -872,7 +886,7 @@ typedef struct tagVBVMR_INTERFACE
 
 #ifdef VBUSE_LOCALLIB
 	// internal used (not public)
-	void __stdcall VBVMR_SetHinstance(HINSTANCE hinst);
+	void VM_CALL VBVMR_SetHinstance(HINSTANCE hinst);
 #endif
 
 

@@ -13,6 +13,9 @@
 #include <functional>
 #include <memory>
 
+// Include platform compatibility layer
+#include "platform_compat.h"
+
 // Include the Voicemeeter Remote API header
 #include "../../VoicemeeterRemote.h"
 
