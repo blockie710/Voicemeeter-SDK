@@ -1,107 +1,83 @@
+/**
+ * lua_plugin.h
+ * 
+ * Lua Script Plugin support for Voicemeeter Plugin Host
+ * Handles loading and processing Lua script audio plugins
+ */
+
 #ifndef LUA_PLUGIN_H
 #define LUA_PLUGIN_H
 
 #include "plugin_interface.h"
-#include <memory>
 #include <string>
+#include <memory>
 #include <vector>
-#include <functional>
-#include <map>
 
-/**
- * LuaPluginInstance - Provides support for LUA scripts as audio plugins
- * 
- * Allows developers to create audio plugins using LUA scripting language,
- * with direct access to audio buffers and parameter management.
- */
-class LuaPluginInstance : public PluginInstance {
+class LuaPluginScanner : public PluginScanner {
 public:
-    LuaPluginInstance();
-    ~LuaPluginInstance();
+    LuaPluginScanner();
+    ~LuaPluginScanner();
+    
+    std::vector<PluginDescription> scanDirectory(const std::string& directory) override;
+    std::shared_ptr<PluginInstance> loadPlugin(const std::string& path) override;
 
-    // PluginInstance interface implementation
+private:
+    std::vector<std::string> getPluginPaths(const std::string& directory);
+};
+
+class LuaPlugin : public PluginInstance {
+public:
+    LuaPlugin(const std::string& path);
+    ~LuaPlugin() override;
+    
+    bool initialize() override;
+    void process(float** inputs, float** outputs, int numInputs, int numOutputs, int numSamples) override;
+    void suspend() override;
+    void resume() override;
+    
+    // Implementation of base class methods
     std::string getName() const override;
     std::string getVendor() const override;
     std::string getVersion() const override;
-    PluginFormat getFormat() const override { return PluginFormat::LUA; }
+    std::string getUniqueId() const override;
+    const char* getFormatName() const override { return "LUA"; }
     
-    void prepareToPlay(double sampleRate, int maxSamplesPerBlock) override;
-    void processBlock(float** inputBuffers, float** outputBuffers, int numInputs, int numOutputs, int numSamples) override;
-    void releaseResources() override;
-    
-    int getNumParameters() const override;
-    PluginParameter getParameter(int index) const override;
-    void setParameterValue(int index, double value) override;
-    double getParameterValue(int index) const override;
-    void setParameterValueByName(const std::string& name, double value) override;
-    
-    int getNumInputChannels() const override;
-    int getNumOutputChannels() const override;
     bool hasEditor() const override;
-    void* openEditor(void* parentWindow) override;
-    void closeEditor() override;
+    bool showEditor(void* parent) override;
+    void hideEditor() override;
     
-    // LUA specific functionality
-    bool loadScript(const std::string& scriptPath);
-    bool loadScriptFromText(const std::string& scriptText);
-    bool reloadScript();
-    bool executeFunction(const std::string& functionName);
-    void registerCallback(const std::string& eventName, std::function<void()> callback);
+    int getParameterCount() const override;
+    PluginParameter getParameter(int index) const override;
+    bool setParameter(int index, float value) override;
     
-    // LUA script introspection
-    std::vector<std::string> getAvailableFunctions() const;
-    bool functionExists(const std::string& functionName) const;
-
-    // Setting values for LUA
-    void setGlobalNumber(const std::string& name, double value);
-    void setGlobalString(const std::string& name, const std::string& value);
-    void setGlobalBoolean(const std::string& name, bool value);
+    int getPresetCount() const override;
+    std::string getPresetName(int index) const override;
+    bool loadPreset(int index) override;
+    bool savePreset(const std::string& name) override;
     
-    // Getting values from LUA
-    double getGlobalNumber(const std::string& name) const;
-    std::string getGlobalString(const std::string& name) const;
-    bool getGlobalBoolean(const std::string& name) const;
-    
-    // Error handling
-    bool hasError() const;
-    std::string getLastError() const;
-    void clearError();
-    
-    // Expose additional functionality to LUA scripts
-    void exposeFunction(const std::string& name, std::function<void()> function);
-    void exposeObject(const std::string& name, void* object);
-    
-    bool isEnabled() const { return m_enabled; }
-    void setEnabled(bool enabled) { m_enabled = enabled; }
-
 private:
-    struct Impl;
-    std::unique_ptr<Impl> m_impl;
-    bool m_enabled = true;
+    // Path to the plugin file
+    std::string m_path;
     
-    // Script metadata
+    // Basic plugin info
     std::string m_name;
     std::string m_vendor;
     std::string m_version;
-    std::string m_scriptPath;
+    std::string m_uniqueId;
     
-    // Cache of parameters to avoid LUA lookups in processBlock
+    // Parameter info
     std::vector<PluginParameter> m_parameters;
-    std::map<std::string, int> m_parameterNameToIndex;
     
-    void initializeLuaEnvironment();
-    void extractMetadata();
-    void extractParameters();
-};
-
-// LUA Plugin Scanner implementation
-class LuaPluginScanner : public PluginScanner {
-public:
-    std::vector<std::string> scanDirectory(const std::string& directory, PluginFormat format) override;
-    std::shared_ptr<PluginInstance> loadPlugin(const std::string& path, PluginFormat format) override;
+    // Editor state
+    bool m_hasEditor = false;
+    void* m_editorHandle = nullptr;
     
-private:
-    bool isLuaScript(const std::string& path) const;
+    // Processing state
+    bool m_isSuspended = true;
+    
+    // LUA-specific implementation details
+    class Impl;
+    std::unique_ptr<Impl> m_impl;
 };
 
 #endif // LUA_PLUGIN_H

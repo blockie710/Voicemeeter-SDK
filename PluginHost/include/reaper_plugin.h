@@ -1,112 +1,83 @@
+/**
+ * reaper_plugin.h
+ * 
+ * REAPER/JSFX Plugin support for Voicemeeter Plugin Host
+ * Handles loading and processing REAPER JSFX audio plugins
+ */
+
 #ifndef REAPER_PLUGIN_H
 #define REAPER_PLUGIN_H
 
 #include "plugin_interface.h"
-#include <memory>
 #include <string>
+#include <memory>
 #include <vector>
-#include <functional>
 
-/**
- * ReaperPluginInstance - Provides support for REAPER extensions and JSFX plugins
- * 
- * REAPER supports two main types of extensions:
- * 1. JSFX - EEL2 scripted audio effects (primarily used for audio processing)
- * 2. Extension plugins - DLLs that extend REAPER functionality
- * 
- * This class handles both types of REAPER plugins.
- */
-class ReaperPluginInstance : public PluginInstance {
+class ReaperPluginScanner : public PluginScanner {
 public:
-    // Types of REAPER plugins
-    enum class ReaperPluginType {
-        JSFX,      // REAPER's built-in scripting format for audio effects
-        EXTENSION  // DLL/SO/DYLIB extensions for REAPER
-    };
+    ReaperPluginScanner();
+    ~ReaperPluginScanner();
     
-    ReaperPluginInstance();
-    ~ReaperPluginInstance();
+    std::vector<PluginDescription> scanDirectory(const std::string& directory) override;
+    std::shared_ptr<PluginInstance> loadPlugin(const std::string& path) override;
 
-    // PluginInstance interface implementation
+private:
+    std::vector<std::string> getPluginPaths(const std::string& directory);
+};
+
+class ReaperPlugin : public PluginInstance {
+public:
+    ReaperPlugin(const std::string& path);
+    ~ReaperPlugin() override;
+    
+    bool initialize() override;
+    void process(float** inputs, float** outputs, int numInputs, int numOutputs, int numSamples) override;
+    void suspend() override;
+    void resume() override;
+    
+    // Implementation of base class methods
     std::string getName() const override;
     std::string getVendor() const override;
     std::string getVersion() const override;
-    PluginFormat getFormat() const override { return PluginFormat::REAPER; }
+    std::string getUniqueId() const override;
+    const char* getFormatName() const override { return "REAPER"; }
     
-    void prepareToPlay(double sampleRate, int maxSamplesPerBlock) override;
-    void processBlock(float** inputBuffers, float** outputBuffers, int numInputs, int numOutputs, int numSamples) override;
-    void releaseResources() override;
-    
-    int getNumParameters() const override;
-    PluginParameter getParameter(int index) const override;
-    void setParameterValue(int index, double value) override;
-    double getParameterValue(int index) const override;
-    void setParameterValueByName(const std::string& name, double value) override;
-    
-    int getNumInputChannels() const override;
-    int getNumOutputChannels() const override;
     bool hasEditor() const override;
-    void* openEditor(void* parentWindow) override;
-    void closeEditor() override;
-
-    // REAPER-specific functionality
-    bool isJSFX() const { return m_type == ReaperPluginType::JSFX; }
-    bool isExtension() const { return m_type == ReaperPluginType::EXTENSION; }
-    ReaperPluginType getReaperPluginType() const { return m_type; }
+    bool showEditor(void* parent) override;
+    void hideEditor() override;
     
-    // JSFX specific methods
-    bool loadJSFXScript(const std::string& scriptPath);
-    bool recompileJSFX();
+    int getParameterCount() const override;
+    PluginParameter getParameter(int index) const override;
+    bool setParameter(int index, float value) override;
     
-    // Extension plugin specific methods
-    bool loadExtension(const std::string& dllPath);
-    void* invokeExtensionFunction(const std::string& functionName, void* data = nullptr);
-    
-    // REAPER plugin data
-    struct ReaperPluginData {
-        void* reaperVmInterface;   // For JSFX VM interaction
-        void* reaperAPIInterface;  // For extension access to REAPER functions
-        int apiVersion;
-    };
-    
-    // Set REAPER-specific data needed for proper plugin operation
-    void setReaperData(const ReaperPluginData& data);
-    
-    bool isEnabled() const { return m_enabled; }
-    void setEnabled(bool enabled) { m_enabled = enabled; }
+    int getPresetCount() const override;
+    std::string getPresetName(int index) const override;
+    bool loadPreset(int index) override;
+    bool savePreset(const std::string& name) override;
     
 private:
-    struct Impl;
-    std::unique_ptr<Impl> m_impl;
-    bool m_enabled = true;
-    ReaperPluginType m_type = ReaperPluginType::JSFX;
+    // Path to the plugin file
+    std::string m_path;
     
-    // Plugin metadata
+    // Basic plugin info
     std::string m_name;
     std::string m_vendor;
     std::string m_version;
-    std::string m_filePath;
+    std::string m_uniqueId;
     
-    // Parameter handling
+    // Parameter info
     std::vector<PluginParameter> m_parameters;
     
-    // Internal initialization
-    void scanJSFXParameters();
-    void scanExtensionParameters();
-    void extractMetadata();
-};
-
-/**
- * REAPER Plugin Scanner implementation
- */
-class ReaperPluginScanner : public PluginScanner {
-public:
-    std::vector<std::string> scanDirectory(const std::string& directory, PluginFormat format) override;
-    std::shared_ptr<PluginInstance> loadPlugin(const std::string& path, PluginFormat format) override;
+    // Editor state
+    bool m_hasEditor = false;
+    void* m_editorHandle = nullptr;
     
-private:
-    bool isJSFXScript(const std::string& path) const;
-    bool isReaperExtension(const std::string& path) const;
+    // Processing state
+    bool m_isSuspended = true;
+    
+    // REAPER/JSFX-specific implementation details
+    class Impl;
+    std::unique_ptr<Impl> m_impl;
 };
 
 #endif // REAPER_PLUGIN_H

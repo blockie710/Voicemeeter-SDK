@@ -1,8 +1,8 @@
 /**
  * aax_plugin.h
  * 
- * AAX plugin format implementation
- * Handles loading, processing, and parameter management for AAX plugins
+ * AAX Plugin support for Voicemeeter Plugin Host
+ * Handles loading and processing AAX audio plugins
  */
 
 #ifndef AAX_PLUGIN_H
@@ -14,108 +14,71 @@
 #include <unordered_map>
 #include <vector>
 
-// Forward declarations for AAX SDK types to avoid including the whole SDK in header
-namespace AAX {
-    class IACFPluginDefinition;
-    class IController;
-    class IEffectParameters;
-    class IComponentDescriptor;
-}
+class AAXPluginScanner : public PluginScanner {
+public:
+    AAXPluginScanner();
+    ~AAXPluginScanner();
+    
+    std::vector<PluginDescription> scanDirectory(const std::string& directory) override;
+    std::shared_ptr<PluginInstance> loadPlugin(const std::string& path) override;
+
+private:
+    std::vector<std::string> getPluginPaths(const std::string& directory);
+};
 
 class AAXPlugin : public PluginInstance {
 public:
     AAXPlugin(const std::string& path);
     ~AAXPlugin() override;
-
-    // PluginInstance interface implementation
+    
+    bool initialize() override;
+    void process(float** inputs, float** outputs, int numInputs, int numOutputs, int numSamples) override;
+    void suspend() override;
+    void resume() override;
+    
+    // Implementation of base class methods
     std::string getName() const override;
     std::string getVendor() const override;
     std::string getVersion() const override;
-    PluginFormat getFormat() const override { return PluginFormat::AAX; }
-
-    // Audio processing
-    void prepareToPlay(double sampleRate, int maxSamplesPerBlock) override;
-    void processBlock(float** inputBuffers, float** outputBuffers, int numInputs, int numOutputs, int numSamples) override;
-    void releaseResources() override;
-
-    // Parameter handling
-    int getNumParameters() const override;
-    PluginParameter getParameter(int index) const override;
-    void setParameterValue(int index, double value) override;
-    double getParameterValue(int index) const override;
-    void setParameterValueByName(const std::string& name, double value) override;
-
-    // Plugin I/O configuration
-    int getNumInputChannels() const override;
-    int getNumOutputChannels() const override;
+    std::string getUniqueId() const override;
+    const char* getFormatName() const override;
+    
     bool hasEditor() const override;
-    void* openEditor(void* parentWindow) override;
-    void closeEditor() override;
-
+    bool showEditor(void* parent) override;
+    void hideEditor() override;
+    
+    int getParameterCount() const override;
+    PluginParameter getParameter(int index) const override;
+    bool setParameter(int index, float value) override;
+    
+    int getPresetCount() const override;
+    std::string getPresetName(int index) const override;
+    bool loadPreset(int index) override;
+    bool savePreset(const std::string& name) override;
+    
 private:
-    // Path to the AAX module
+    // Path to the plugin file
     std::string m_path;
     
-    // Module/DLL handle
-    void* m_moduleHandle = nullptr;
-    
-    // AAX interfaces
-    AAX::IACFPluginDefinition* m_pluginDefinition = nullptr;
-    AAX::IController* m_controller = nullptr;
-    AAX::IEffectParameters* m_parameters = nullptr;
-    
-    // AAX processing state
-    double m_sampleRate = 0.0;
-    int m_blockSize = 0;
-    bool m_isActive = false;
-    
-    // Parameter cache for quick lookups
-    std::unordered_map<int, PluginParameter> m_parameterCache;
-    std::unordered_map<std::string, int> m_parameterNameToIndex;
-    
-    // Plugin information
+    // Basic plugin info
     std::string m_name;
     std::string m_vendor;
     std::string m_version;
-    int m_numInputChannels = 0;
-    int m_numOutputChannels = 0;
+    std::string m_uniqueId;
     
-    // Editor
-    void* m_editorHandle = nullptr;
+    // Parameter info
+    std::vector<PluginParameter> m_parameters;
+    
+    // Editor state
     bool m_hasEditor = false;
+    void* m_editorHandle = nullptr;
     
-    // Initialize and load the AAX plugin
-    bool loadPlugin();
-    bool initializePlugin();
-    void cacheParameters();
+    // Processing state
+    bool m_isSuspended = true;
     
-    // Process context for AAX
-    struct ProcessContext {
-        float** inputBuffers;
-        float** outputBuffers;
-        int numSamples;
-    };
-    
-    // Buffer management for AAX format conversion
-    std::vector<float> m_inputInterleavedBuffer;
-    std::vector<float> m_outputInterleavedBuffer;
-};
-
-// AAX Plugin Scanner implementation
-class AAXPluginScanner : public PluginScanner {
-public:
-    AAXPluginScanner();
-    ~AAXPluginScanner() override;
-    
-    // Scan directories for AAX plugins
-    std::vector<std::string> scanDirectory(const std::string& directory, PluginFormat format) override;
-    
-    // Load a specific plugin
-    std::shared_ptr<PluginInstance> loadPlugin(const std::string& path, PluginFormat format) override;
-    
-private:
-    // Standard AAX plugin locations
-    std::vector<std::string> getDefaultAAXPaths() const;
+    // AAX-specific implementation details
+    class Impl;
+    std::unique_ptr<Impl> m_impl;
 };
 
 #endif // AAX_PLUGIN_H

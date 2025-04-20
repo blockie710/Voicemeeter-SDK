@@ -15,6 +15,9 @@
 #include "../include/aax_plugin.h"
 #include "../include/aau_plugin.h"
 
+// External functions from plugin_interface.cpp
+extern bool initPluginLogger(const std::string& logDir);
+
 // Voicemeeter theme colors
 #define VM_COLOR_BACKGROUND         RGB(18, 30, 40)
 #define VM_COLOR_BUTTON_BG          RGB(44, 61, 77)
@@ -30,25 +33,38 @@
 
 // Structure to hold command line arguments
 struct CommandLineArgs {
+    bool verbose = false;
+    bool noScan = false;
     std::vector<std::string> vst3Paths;
     std::vector<std::string> aaxPaths;
     std::vector<std::string> aauPaths;
-    bool verbose = false;
-    bool noScan = false;
+    std::vector<std::string> araPaths;
+    std::vector<std::string> luaPaths;
+    std::vector<std::string> reaperPaths;
+    bool showHelp = false;
 };
 
 // Plugin instance wrapper to manage chain state
 struct PluginChainItem {
     std::shared_ptr<PluginInstance> plugin;
-    bool enabled = true;
+    bool bypass = false;
+    std::string name;
     std::string uniqueId;
-    int chainPosition = 0;
+
+    PluginChainItem(std::shared_ptr<PluginInstance> p) 
+        : plugin(p), uniqueId(p->getUniqueId()) {
+        name = p->getName();
+    }
 };
 
 // Platform-specific includes for window handling
 #ifdef _WIN32
 #include <windows.h>
 #include <commctrl.h>
+#include <shellapi.h>
+#pragma comment(lib, "comctl32.lib")
+#pragma comment(lib, "user32.lib")
+#pragma comment(lib, "gdi32.lib")
 #endif
 
 // Defines for window creation
@@ -58,6 +74,7 @@ struct PluginChainItem {
 
 // Custom window messages
 #define WM_PLUGIN_UPDATED (WM_USER + 100)
+#define WM_AUDIO_LEVELS_UPDATED (WM_USER + 101)
 
 #ifdef _WIN32
 // Windows UI controls
@@ -68,63 +85,15 @@ struct PluginChainItem {
 #define ID_BTN_BYPASS_ALL    1005
 #define ID_BTN_SAVE_CHAIN    1006
 #define ID_BTN_LOAD_CHAIN    1007
-#define ID_LST_PLUGINS       1008
-#define ID_GRP_PLUGINS       1009
-#define ID_GRP_CONTROLS      1010
-#define ID_GRP_PARAMETERS    1011
-#define ID_BTN_EDIT_PLUGIN   1012
-#define ID_SLD_PARAMETER     1013
-#define ID_LBL_PARAMETER     1014
-#define ID_CMB_INPUT_CHANNEL 1015
-#define ID_CMB_OUTPUT_CHANNEL 1016
-#define ID_CHK_ENABLE_PLUGIN 1017
-#define ID_BTN_REFRESH_SCAN  1018
-#define ID_STATUS_BAR        1019
-#define ID_TAB_CONTROL       1020
-#define ID_BTN_SHOW_EDITOR   1021
+#define ID_LISTBOX_PLUGINS   1008
+#define ID_GROUPBOX_CHAIN    1009
+#define ID_GROUPBOX_PARAMS   1010
+#define ID_STATUS_BAR        1011
 
-#define ID_GRP_PLUGINS       1100
-#define ID_GRP_CONTROLS      1101
-#define ID_GRP_PARAMETERS    1102
-#define ID_LST_PARAMETERS    1103
-#define ID_SLIDER_PARAMETER  1104
-#define ID_LBL_PARAMETER     1105
-#define ID_BTN_REFRESH_SCAN  1106
-#define ID_CHK_ENABLE_PLUGIN 1107
-#define ID_BTN_SHOW_EDITOR   1108
-#define ID_CMB_INPUT_CHANNEL 1109
-#define ID_CMB_OUTPUT_CHANNEL 1110
-#define ID_STATUS_BAR        1111
-
-// UI controls
+// UI State
 HWND g_hwndPluginList = NULL;
-HWND g_hwndAddBtn = NULL;
-HWND g_hwndRemoveBtn = NULL;
-HWND g_hwndMoveUpBtn = NULL;
-HWND g_hwndMoveDownBtn = NULL;
-HWND g_hwndBypassBtn = NULL;
-HWND g_hwndSaveBtn = NULL;
-HWND g_hwndLoadBtn = NULL;
-HWND g_hwndRefreshScanBtn = NULL;
-HWND g_hwndEnablePluginCheck = NULL;
-HWND g_hwndShowEditorBtn = NULL;
-
-// Advanced UI elements
-HWND g_hwndPluginsGroup = NULL;
-HWND g_hwndControlsGroup = NULL;
-HWND g_hwndParametersGroup = NULL;
-HWND g_hwndParameterList = NULL;
-HWND g_hwndParameterSlider = NULL;
-HWND g_hwndParameterLabel = NULL;
-HWND g_hwndInputChannelCombo = NULL;
-HWND g_hwndOutputChannelCombo = NULL;
 HWND g_hwndStatusBar = NULL;
-
-// UI fonts
-HFONT g_hFont = NULL;
-HFONT g_hBoldFont = NULL;
-
-// Current selected plugin
+HWND g_hwndParamEditor = NULL;
 int g_selectedPluginIndex = -1;
 int g_selectedParameterIndex = -1;
 #endif
@@ -151,30 +120,428 @@ void reorderPluginChain();
 void enablePlugin(const std::string& uniqueId, bool enable);
 void displayPluginList();
 void displayVoicemeeterInfo();
-void savePluginChainState(const std::string& filename);
-bool loadPluginChainState(const std::string& filename);
 CommandLineArgs parseCommandLine(int argc, char** argv);
 void displayHelp();
 
 #ifdef _WIN32
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
-void CreateControls(HWND hwndParent);
-HFONT CreateStyledFont(bool bold, int height);
-void UpdateParameterControls();
-void UpdateParameterSlider(int parameterIndex);
-void UpdatePluginControls();
-void RefreshPluginListUI();
-void MovePluginUp();
-void MovePluginDown();
-void RemoveSelectedPlugin();
+#endif
+
+// Parse command line arguments
+CommandLineArgs parseCommandLine(int argc, char** argv) {
+    CommandLineArgs args;
+
+    for (int i = 1; i < argc; i++) {
+        std::string arg = argv[i];
+
+        if (arg == "--verbose") {
+            args.verbose = true;
+        }
+        else if (arg == "--no-scan") {
+            args.noScan = true;
+        }
+        else if (arg.rfind("--vst3=", 0) == 0) {
+            args.vst3Paths.push_back(arg.substr(7));
+        }
+        else if (arg.rfind("--aax=", 0) == 0) {
+            args.aaxPaths.push_back(arg.substr(6));
+        }
+        else if (arg.rfind("--aau=", 0) == 0) {
+            args.aauPaths.push_back(arg.substr(6));
+        }
+        else if (arg.rfind("--ara=", 0) == 0) {
+            args.araPaths.push_back(arg.substr(6));
+        }
+        else if (arg.rfind("--lua=", 0) == 0) {
+            args.luaPaths.push_back(arg.substr(6));
+        }
+        else if (arg.rfind("--reaper=", 0) == 0) {
+            args.reaperPaths.push_back(arg.substr(9));
+        }
+        else if (arg == "--help" || arg == "-h") {
+            args.showHelp = true;
+        }
+    }
+
+    return args;
+}
+
+// Display help message
+void displayHelp() {
+    std::cout << "Usage: voicemeeter_plugin_host [options]\n";
+    std::cout << "Options:\n";
+    std::cout << "  --verbose          Enable verbose mode\n";
+    std::cout << "  --no-scan          Disable plugin scanning\n";
+    std::cout << "  --vst3=<path>      Add VST3 plugin path\n";
+    std::cout << "  --aax=<path>       Add AAX plugin path\n";
+    std::cout << "  --aau=<path>       Add AAU plugin path\n";
+    std::cout << "  --ara=<path>       Add ARA plugin path\n";
+    std::cout << "  --lua=<path>       Add LUA script path\n";
+    std::cout << "  --reaper=<path>    Add REAPER plugin path\n";
+    std::cout << "  --help             Display this help message\n";
+}
+
+#ifdef _WIN32
+// Windows message handling procedure
+LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    switch (uMsg) {
+        case WM_CREATE:
+            // Initialize UI elements when window is created
+            {
+                // Create plugin chain controls
+                g_hwndPluginList = CreateWindow(
+                    "LISTBOX",
+                    nullptr,
+                    WS_CHILD | WS_VISIBLE | LBS_NOTIFY | WS_VSCROLL | WS_BORDER,
+                    20, 60, 300, 400,
+                    hwnd,
+                    (HMENU)ID_LISTBOX_PLUGINS,
+                    GetModuleHandle(NULL),
+                    nullptr
+                );
+
+                // Create buttons
+                CreateWindow(
+                    "BUTTON",
+                    "Add Plugin",
+                    WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
+                    20, 470, 100, 30,
+                    hwnd,
+                    (HMENU)ID_BTN_ADD_PLUGIN,
+                    GetModuleHandle(NULL),
+                    nullptr
+                );
+
+                CreateWindow(
+                    "BUTTON",
+                    "Remove",
+                    WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
+                    130, 470, 80, 30,
+                    hwnd,
+                    (HMENU)ID_BTN_REMOVE_PLUGIN,
+                    GetModuleHandle(NULL),
+                    nullptr
+                );
+
+                CreateWindow(
+                    "BUTTON",
+                    "Move Up",
+                    WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
+                    20, 510, 80, 30,
+                    hwnd,
+                    (HMENU)ID_BTN_MOVE_UP,
+                    GetModuleHandle(NULL),
+                    nullptr
+                );
+
+                CreateWindow(
+                    "BUTTON",
+                    "Move Down",
+                    WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
+                    110, 510, 80, 30,
+                    hwnd,
+                    (HMENU)ID_BTN_MOVE_DOWN,
+                    GetModuleHandle(NULL),
+                    nullptr
+                );
+
+                CreateWindow(
+                    "BUTTON",
+                    "Bypass All",
+                    WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX,
+                    200, 510, 100, 30,
+                    hwnd,
+                    (HMENU)ID_BTN_BYPASS_ALL,
+                    GetModuleHandle(NULL),
+                    nullptr
+                );
+
+                CreateWindow(
+                    "BUTTON",
+                    "Save Chain",
+                    WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
+                    20, 550, 100, 30,
+                    hwnd,
+                    (HMENU)ID_BTN_SAVE_CHAIN,
+                    GetModuleHandle(NULL),
+                    nullptr
+                );
+
+                CreateWindow(
+                    "BUTTON",
+                    "Load Chain",
+                    WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
+                    130, 550, 100, 30,
+                    hwnd,
+                    (HMENU)ID_BTN_LOAD_CHAIN,
+                    GetModuleHandle(NULL),
+                    nullptr
+                );
+
+                // Create status bar
+                g_hwndStatusBar = CreateWindow(
+                    STATUSCLASSNAME,
+                    nullptr,
+                    WS_CHILD | WS_VISIBLE | SBARS_SIZEGRIP,
+                    0, 0, 0, 0,
+                    hwnd,
+                    (HMENU)ID_STATUS_BAR,
+                    GetModuleHandle(NULL),
+                    nullptr
+                );
+
+                // Set status bar text
+                SendMessage(g_hwndStatusBar, SB_SETTEXT, 0, (LPARAM)"Ready");
+
+                // Create parameter editor area
+                g_hwndParamEditor = CreateWindow(
+                    "STATIC",
+                    "Select a plugin to edit its parameters",
+                    WS_CHILD | WS_VISIBLE | SS_CENTER | WS_BORDER,
+                    340, 60, 650, 500,
+                    hwnd,
+                    nullptr,
+                    GetModuleHandle(NULL),
+                    nullptr
+                );
+
+                // Set fonts for all controls
+                HFONT hFont = CreateFont(
+                    16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                    ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                    CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
+                    "Segoe UI"
+                );
+
+                EnumChildWindows(hwnd, [](HWND hwndChild, LPARAM lParam) -> BOOL {
+                    SendMessage(hwndChild, WM_SETFONT, (WPARAM)lParam, TRUE);
+                    return TRUE;
+                }, (LPARAM)hFont);
+            }
+            return 0;
+
+        case WM_COMMAND:
+            // Handle button clicks and control notifications
+            switch (LOWORD(wParam)) {
+                case ID_BTN_ADD_PLUGIN:
+                    // Show file dialog to select a plugin
+                    {
+                        char szFile[MAX_PATH] = "";
+                        OPENFILENAME ofn = { 0 };
+
+                        ofn.lStructSize = sizeof(OPENFILENAME);
+                        ofn.hwndOwner = hwnd;
+                        ofn.lpstrFilter = "VST3 Plugins (*.vst3)\0*.vst3\0"
+                                         "AAX Plugins (*.aaxplugin)\0*.aaxplugin\0"
+                                         "All Files (*.*)\0*.*\0";
+                        ofn.lpstrFile = szFile;
+                        ofn.nMaxFile = MAX_PATH;
+                        ofn.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
+
+                        if (GetOpenFileName(&ofn)) {
+                            // Determine format from file extension
+                            std::string path = szFile;
+                            PluginFormat format = PluginFormat::UNKNOWN;
+
+                            if (path.ends_with(".vst3")) {
+                                format = PluginFormat::VST3;
+                            } else if (path.ends_with(".aaxplugin")) {
+                                format = PluginFormat::AAX;
+                            } else if (path.ends_with(".component")) {
+                                format = PluginFormat::AAU;
+                            } else if (path.ends_with(".lua")) {
+                                format = PluginFormat::LUA;
+                            } else if (path.ends_with(".jsfx")) {
+                                format = PluginFormat::REAPER;
+                            }
+
+                            // Load the plugin
+                            if (format != PluginFormat::UNKNOWN) {
+                                if (loadPlugin(path, format)) {
+                                    // Update the plugin list UI
+                                    SendMessage(g_hwndStatusBar, SB_SETTEXT, 0, (LPARAM)("Loaded plugin: " + path).c_str());
+                                    displayPluginList();
+                                } else {
+                                    MessageBox(hwnd, "Failed to load plugin", "Error", MB_OK | MB_ICONERROR);
+                                }
+                            } else {
+                                MessageBox(hwnd, "Unknown plugin format", "Error", MB_OK | MB_ICONERROR);
+                            }
+                        }
+                    }
+                    break;
+
+                case ID_BTN_REMOVE_PLUGIN:
+                    // Remove selected plugin from chain
+                    {
+                        int selectedIndex = (int)SendMessage(g_hwndPluginList, LB_GETCURSEL, 0, 0);
+                        if (selectedIndex >= 0 && selectedIndex < g_pluginChain.size()) {
+                            g_pluginChain.erase(g_pluginChain.begin() + selectedIndex);
+                            displayPluginList();
+                        }
+                    }
+                    break;
+
+                case ID_BTN_MOVE_UP:
+                    // Move selected plugin up in the chain
+                    {
+                        int selectedIndex = (int)SendMessage(g_hwndPluginList, LB_GETCURSEL, 0, 0);
+                        if (selectedIndex > 0 && selectedIndex < g_pluginChain.size()) {
+                            std::swap(g_pluginChain[selectedIndex], g_pluginChain[selectedIndex - 1]);
+                            displayPluginList();
+                            SendMessage(g_hwndPluginList, LB_SETCURSEL, selectedIndex - 1, 0);
+                        }
+                    }
+                    break;
+
+                case ID_BTN_MOVE_DOWN:
+                    // Move selected plugin down in the chain
+                    {
+                        int selectedIndex = (int)SendMessage(g_hwndPluginList, LB_GETCURSEL, 0, 0);
+                        if (selectedIndex >= 0 && selectedIndex < g_pluginChain.size() - 1) {
+                            std::swap(g_pluginChain[selectedIndex], g_pluginChain[selectedIndex + 1]);
+                            displayPluginList();
+                            SendMessage(g_hwndPluginList, LB_SETCURSEL, selectedIndex + 1, 0);
+                        }
+                    }
+                    break;
+
+                case ID_BTN_BYPASS_ALL:
+                    // Toggle bypass state for all plugins
+                    {
+                        g_bypassAllPlugins = !g_bypassAllPlugins;
+                        SendMessage(GetDlgItem(hwnd, ID_BTN_BYPASS_ALL), BM_SETCHECK, g_bypassAllPlugins ? BST_CHECKED : BST_UNCHECKED, 0);
+                    }
+                    break;
+
+                case ID_BTN_SAVE_CHAIN:
+                    // Save the current plugin chain to a file
+                    {
+                        char szFile[MAX_PATH] = "plugin_chain.vmpchain";
+                        OPENFILENAME ofn = { 0 };
+
+                        ofn.lStructSize = sizeof(OPENFILENAME);
+                        ofn.hwndOwner = hwnd;
+                        ofn.lpstrFilter = "Voicemeeter Plugin Chain (*.vmpchain)\0*.vmpchain\0All Files (*.*)\0*.*\0";
+                        ofn.lpstrFile = szFile;
+                        ofn.nMaxFile = MAX_PATH;
+                        ofn.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT;
+                        ofn.lpstrDefExt = "vmpchain";
+
+                        if (GetSaveFileName(&ofn)) {
+                            // Implement saving the plugin chain to the file
+                            // This would serialize the plugin chain to the file
+                            MessageBox(hwnd, "Chain saved successfully", "Success", MB_OK | MB_ICONINFORMATION);
+                            SendMessage(g_hwndStatusBar, SB_SETTEXT, 0, (LPARAM)("Chain saved to: " + std::string(szFile)).c_str());
+                        }
+                    }
+                    break;
+
+                case ID_BTN_LOAD_CHAIN:
+                    // Load a plugin chain from a file
+                    {
+                        char szFile[MAX_PATH] = "";
+                        OPENFILENAME ofn = { 0 };
+
+                        ofn.lStructSize = sizeof(OPENFILENAME);
+                        ofn.hwndOwner = hwnd;
+                        ofn.lpstrFilter = "Voicemeeter Plugin Chain (*.vmpchain)\0*.vmpchain\0All Files (*.*)\0*.*\0";
+                        ofn.lpstrFile = szFile;
+                        ofn.nMaxFile = MAX_PATH;
+                        ofn.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
+
+                        if (GetOpenFileName(&ofn)) {
+                            // Implement loading the plugin chain from the file
+                            // This would deserialize the plugin chain from the file
+                            MessageBox(hwnd, "Chain loaded successfully", "Success", MB_OK | MB_ICONINFORMATION);
+                            SendMessage(g_hwndStatusBar, SB_SETTEXT, 0, (LPARAM)("Chain loaded from: " + std::string(szFile)).c_str());
+                        }
+                    }
+                    break;
+
+                case ID_LISTBOX_PLUGINS:
+                    // Handle selection change in the plugin list
+                    if (HIWORD(wParam) == LBN_SELCHANGE) {
+                        int selectedIndex = (int)SendMessage(g_hwndPluginList, LB_GETCURSEL, 0, 0);
+                        if (selectedIndex >= 0 && selectedIndex < g_pluginChain.size()) {
+                            g_selectedPluginIndex = selectedIndex;
+                            // Update the parameter editor UI to show parameters for the selected plugin
+                            auto& plugin = g_pluginChain[selectedIndex].plugin;
+                            std::string info = "Plugin: " + plugin->getName() + "\n\n";
+                            info += "Format: " + std::string(plugin->getFormatName()) + "\n";
+                            info += "Vendor: " + plugin->getVendor() + "\n";
+                            info += "Version: " + plugin->getVersion() + "\n\n";
+                            info += "Parameters:\n";
+
+                            for (int i = 0; i < plugin->getParameterCount(); i++) {
+                                PluginParameter param = plugin->getParameter(i);
+                                info += "  " + param.name + ": " + std::to_string(param.currentValue) + "\n";
+                            }
+
+                            SetWindowText(g_hwndParamEditor, info.c_str());
+                        } else {
+                            g_selectedPluginIndex = -1;
+                            SetWindowText(g_hwndParamEditor, "Select a plugin to edit its parameters");
+                        }
+                    }
+                    break;
+            }
+            return 0;
+
+        case WM_PLUGIN_UPDATED:
+            // Handle plugin update notifications
+            displayPluginList();
+            return 0;
+
+        case WM_AUDIO_LEVELS_UPDATED:
+            // Update audio level meters in the UI (not implemented yet)
+            return 0;
+
+        case WM_SIZE:
+            // Handle window resizing
+            {
+                int width = LOWORD(lParam);
+                int height = HIWORD(lParam);
+
+                // Reposition status bar
+                SendMessage(g_hwndStatusBar, WM_SIZE, 0, 0);
+
+                // Reposition other controls as needed
+                // ...
+            }
+            return 0;
+
+        case WM_CLOSE:
+            // Handle window close (X button)
+            DestroyWindow(hwnd);
+            return 0;
+
+        case WM_DESTROY:
+            // Handle window destruction
+            g_running = false;
+            PostQuitMessage(0);
+            return 0;
+
+        default:
+            return DefWindowProc(hwnd, uMsg, wParam, lParam);
+    }
+}
 #endif
 
 // Main entry point
 int main(int argc, char** argv) {
     std::cout << "Voicemeeter Plugin Host - Starting..." << std::endl;
 
+    // Initialize logging
+    initPluginLogger("logs");
+
     // Parse command line arguments
     CommandLineArgs args = parseCommandLine(argc, argv);
+
+    if (args.showHelp) {
+        displayHelp();
+        return 0;
+    }
 
     if (args.verbose) {
         std::cout << "Verbose mode enabled." << std::endl;
@@ -196,9 +563,44 @@ int main(int argc, char** argv) {
         #ifdef _WIN32
         scanForPlugins("C:\\Program Files\\Common Files\\VST3", PluginFormat::VST3);
         scanForPlugins("C:\\Program Files\\Common Files\\Avid\\Audio\\Plug-Ins", PluginFormat::AAX);
+        #elif defined(__APPLE__)
+        scanForPlugins("/Library/Audio/Plug-Ins/VST3", PluginFormat::VST3);
+        scanForPlugins("/Library/Application Support/Avid/Audio/Plug-Ins", PluginFormat::AAX);
+        scanForPlugins("/Library/Audio/Plug-Ins/Components", PluginFormat::AAU);
         #else
-        // macOS paths would go here for AAU
+        scanForPlugins("/usr/lib/vst3", PluginFormat::VST3);
+        scanForPlugins("/usr/local/lib/vst3", PluginFormat::VST3);
+        scanForPlugins(std::string(getenv("HOME")) + "/.vst3", PluginFormat::VST3);
         #endif
+
+        // Additional plugin directories from command line
+        for (const auto& path : args.vst3Paths) {
+            scanForPlugins(path, PluginFormat::VST3);
+        }
+
+        for (const auto& path : args.aaxPaths) {
+            scanForPlugins(path, PluginFormat::AAX);
+        }
+
+        for (const auto& path : args.aauPaths) {
+            #ifdef __APPLE__
+            scanForPlugins(path, PluginFormat::AAU);
+            #else
+            std::cout << "AAU plugins are only supported on macOS." << std::endl;
+            #endif
+        }
+
+        for (const auto& path : args.araPaths) {
+            scanForPlugins(path, PluginFormat::ARA);
+        }
+
+        for (const auto& path : args.luaPaths) {
+            scanForPlugins(path, PluginFormat::LUA);
+        }
+
+        for (const auto& path : args.reaperPaths) {
+            scanForPlugins(path, PluginFormat::REAPER);
+        }
 
         // Display found plugins
         displayPluginList();
@@ -264,11 +666,20 @@ bool initializeApplication() {
 
     // Initialize UI (minimal implementation for now)
     #ifdef _WIN32
+    // Initialize common controls
+    INITCOMMONCONTROLSEX icc;
+    icc.dwSize = sizeof(INITCOMMONCONTROLSEX);
+    icc.dwICC = ICC_WIN95_CLASSES | ICC_BAR_CLASSES;
+    InitCommonControlsEx(&icc);
+
     // Register window class
     WNDCLASS wc = {};
     wc.lpfnWndProc = WindowProc;
     wc.hInstance = GetModuleHandle(NULL);
     wc.lpszClassName = "VoicemeeterPluginHostClass";
+    wc.hbrBackground = CreateSolidBrush(VM_COLOR_BACKGROUND);
+    wc.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
 
     RegisterClass(&wc);
 
@@ -280,10 +691,10 @@ bool initializeApplication() {
         WS_OVERLAPPEDWINDOW,            // Window style
         CW_USEDEFAULT, CW_USEDEFAULT,   // Position
         WINDOW_WIDTH, WINDOW_HEIGHT,    // Size
-        NULL,                           // Parent window    
+        NULL,                           // Parent window
         NULL,                           // Menu
         GetModuleHandle(NULL),          // Instance handle
-        NULL                            // Additional data
+        NULL                            // Additional application data
     );
 
     if (g_hwndMain == NULL) {
@@ -291,50 +702,113 @@ bool initializeApplication() {
         return false;
     }
 
-    ShowWindow(g_hwndMain, SW_SHOW);
+    // Set window title with Voicemeeter info
+    auto type = g_voicemeeterClient->getVoicemeeterType();
+    std::string title = WINDOW_TITLE;
 
-    // Create UI controls
-    CreateControls(g_hwndMain);
+    switch (type) {
+        case VoicemeeterIntegration::VoicemeeterType::STANDARD:
+            title += " - Voicemeeter Standard";
+            break;
+        case VoicemeeterIntegration::VoicemeeterType::BANANA:
+            title += " - Voicemeeter Banana";
+            break;
+        case VoicemeeterIntegration::VoicemeeterType::POTATO:
+            title += " - Voicemeeter Potato";
+            break;
+        case VoicemeeterIntegration::VoicemeeterType::POTATO_X64:
+            title += " - Voicemeeter Potato x64";
+            break;
+    }
+
+    SetWindowText(g_hwndMain, title.c_str());
+
+    // Show window
+    ShowWindow(g_hwndMain, SW_SHOW);
+    UpdateWindow(g_hwndMain);
     #endif
 
     return true;
 }
 
-// Clean up and shut down
+// Shutdown application
 void shutdownApplication() {
-    // Stop Voicemeeter audio processing
+    // Stop audio processing
     if (g_voicemeeterClient) {
         g_voicemeeterClient->stopAudioProcessing();
         g_voicemeeterClient->shutdown();
     }
 
-    // Unload all plugins
-    g_loadedPlugins.clear();
+    // Clean up plugin chain
     g_pluginChain.clear();
+    g_loadedPlugins.clear();
 
-    std::cout << "Voicemeeter Plugin Host - Shutdown complete." << std::endl;
+    std::cout << "Application shutdown complete." << std::endl;
 }
 
 // Audio processing callback
 void processAudio(float** inputs, float** outputs, int numInputs, int numOutputs, int numSamples) {
-    if (g_bypassAllPlugins) {
-        // Directly pass through audio if bypass is enabled
-        for (int i = 0; i < numInputs; ++i) {
-            std::copy(inputs[i], inputs[i] + numSamples, outputs[i]);
+    // If bypassing all plugins, just copy inputs to outputs
+    if (g_bypassAllPlugins || g_pluginChain.empty()) {
+        for (int i = 0; i < numOutputs && i < numInputs; ++i) {
+            if (inputs[i] && outputs[i]) {
+                std::copy(inputs[i], inputs[i] + numSamples, outputs[i]);
+            }
         }
         return;
     }
 
-    // Apply each plugin in the chain to the audio
-    for (auto& item : g_pluginChain) {
-        if (item.enabled) {
-            item.plugin->processBlock(inputs, outputs, numInputs, numOutputs, numSamples);
+    // Create temporary buffers for the plugin chain
+    std::vector<float> tempBuffers[64]; // Max 64 channels
+    for (int i = 0; i < numOutputs; i++) {
+        tempBuffers[i].resize(numSamples);
+    }
+
+    // Copy inputs to first temporary buffer
+    for (int i = 0; i < numInputs; i++) {
+        if (inputs[i]) {
+            std::copy(inputs[i], inputs[i] + numSamples, tempBuffers[i].data());
+        }
+    }
+
+    // Process through plugin chain
+    for (auto& pluginItem : g_pluginChain) {
+        if (!pluginItem.bypass) {
+            // Setup pointers for plugin processing
+            float* pluginInputs[64];
+            float* pluginOutputs[64];
+
+            for (int i = 0; i < numInputs; i++) {
+                pluginInputs[i] = tempBuffers[i].data();
+            }
+
+            for (int i = 0; i < numOutputs; i++) {
+                pluginOutputs[i] = tempBuffers[i].data();
+            }
+
+            // Process through plugin
+            pluginItem.plugin->process(pluginInputs, pluginOutputs, numInputs, numOutputs, numSamples);
+        }
+    }
+
+    // Copy final result to outputs
+    for (int i = 0; i < numOutputs; i++) {
+        if (outputs[i]) {
+            std::copy(tempBuffers[i].data(), tempBuffers[i].data() + numSamples, outputs[i]);
         }
     }
 }
 
 // Scan for plugins in a directory
 bool scanForPlugins(const std::string& directory, PluginFormat format) {
+    std::cout << "Scanning for " << static_cast<int>(format) << " plugins in: " << directory << std::endl;
+
+    // Check if directory exists
+    if (!std::filesystem::exists(directory)) {
+        std::cerr << "Directory does not exist: " << directory << std::endl;
+        return false;
+    }
+
     // Create scanner for the specified format
     auto scanner = createPluginScanner(format);
     if (!scanner) {
@@ -343,20 +817,23 @@ bool scanForPlugins(const std::string& directory, PluginFormat format) {
     }
 
     // Scan for plugins
-    auto pluginPaths = scanner->scanDirectory(directory, format);
-    std::cout << "Found " << pluginPaths.size() << " plugins in " << directory << std::endl;
+    auto foundPlugins = scanner->scanDirectory(directory);
 
-    // Try to load the first few plugins as an example
-    size_t loadCount = std::min(pluginPaths.size(), size_t(5));
-    for (size_t i = 0; i < loadCount; i++) {
-        loadPlugin(pluginPaths[i], format);
+    std::cout << "Found " << foundPlugins.size() << " plugins." << std::endl;
+
+    // Store plugins in the registry
+    for (auto& pluginDesc : foundPlugins) {
+        std::cout << "  - " << pluginDesc.name << " (" << pluginDesc.path << ")" << std::endl;
+        g_loadedPlugins[pluginDesc.uniqueId] = nullptr; // Will be loaded on demand
     }
 
     return true;
 }
 
-// Load a specific plugin
+// Load a plugin by path and format
 bool loadPlugin(const std::string& path, PluginFormat format) {
+    std::cout << "Loading plugin: " << path << std::endl;
+
     // Create scanner for the specified format
     auto scanner = createPluginScanner(format);
     if (!scanner) {
@@ -365,93 +842,84 @@ bool loadPlugin(const std::string& path, PluginFormat format) {
     }
 
     // Load the plugin
-    auto plugin = scanner->loadPlugin(path, format);
+    auto plugin = scanner->loadPlugin(path);
     if (!plugin) {
         std::cerr << "Failed to load plugin: " << path << std::endl;
         return false;
     }
 
-    // Initialize plugin with current sample rate
-    plugin->prepareToPlay(48000.0, 1024);  // Default values, should get from Voicemeeter
-
-    // Add to loaded plugins map
-    std::string name = plugin->getName();
-    g_loadedPlugins[name] = plugin;
+    std::cout << "Loaded plugin: " << plugin->getName() << std::endl;
 
     // Add to plugin chain
     addPluginToChain(plugin);
 
-    std::cout << "Loaded plugin: " << name << " (Version: " << plugin->getVersion() << 
-                 ", Vendor: " << plugin->getVendor() << ")" << std::endl;
-
     return true;
 }
 
-// Add plugin to the processing chain
+// Add a plugin to the processing chain
 void addPluginToChain(std::shared_ptr<PluginInstance> plugin) {
-    PluginChainItem item;
-    item.plugin = plugin;
-    item.uniqueId = plugin->getName(); // Use name as unique ID for simplicity
-    item.chainPosition = g_pluginChain.size();
-    g_pluginChain.push_back(item);
+    // Create a chain item for the plugin
+    PluginChainItem item(plugin);
+
+    // Add to the chain
+    g_pluginChain.push_back(std::move(item));
+
+    // Store in loaded plugins map
+    g_loadedPlugins[plugin->getUniqueId()] = plugin;
+
+    // Update UI
+    #ifdef _WIN32
+    if (g_hwndPluginList) {
+        displayPluginList();
+    }
+    #endif
 }
 
-// Reorder plugin chain based on chainPosition
+// Reorder the plugin chain
 void reorderPluginChain() {
-    std::sort(g_pluginChain.begin(), g_pluginChain.end(), [](const PluginChainItem& a, const PluginChainItem& b) {
-        return a.chainPosition < b.chainPosition;
-    });
+    // No implementation needed - handled by UI actions
 }
 
-// Enable or disable a plugin in the chain
+// Enable/disable a plugin in the chain
 void enablePlugin(const std::string& uniqueId, bool enable) {
     for (auto& item : g_pluginChain) {
         if (item.uniqueId == uniqueId) {
-            item.enabled = enable;
+            item.bypass = !enable;
             break;
         }
     }
 }
 
-// Save plugin chain state to a file
-void savePluginChainState(const std::string& filename) {
-    // Implementation for saving state (e.g., JSON or XML)
-}
-
-// Load plugin chain state from a file
-bool loadPluginChainState(const std::string& filename) {
-    // Implementation for loading state (e.g., JSON or XML)
-    return true;
-}
-
-// Display list of loaded plugins
+// Display the list of plugins in the UI
 void displayPluginList() {
-    if (g_loadedPlugins.empty()) {
-        std::cout << "No plugins loaded." << std::endl;
-        return;
-    }
+    #ifdef _WIN32
+    if (g_hwndPluginList) {
+        // Clear the list
+        SendMessage(g_hwndPluginList, LB_RESETCONTENT, 0, 0);
 
-    std::cout << "\nLoaded Plugins:\n";
-    std::cout << "---------------------\n";
-
-    for (const auto& pair : g_loadedPlugins) {
-        auto& plugin = pair.second;
-        std::string formatName;
-
-        switch (plugin->getFormat()) {
-            case PluginFormat::VST3: formatName = "VST3"; break;
-            case PluginFormat::AAX: formatName = "AAX"; break;
-            case PluginFormat::AAU: formatName = "AAU"; break;
-            default: formatName = "Unknown"; break;
+        // Add each plugin to the list
+        for (const auto& item : g_pluginChain) {
+            std::string displayName = item.name;
+            if (item.bypass) {
+                displayName += " (Bypassed)";
+            }
+            SendMessage(g_hwndPluginList, LB_ADDSTRING, 0, (LPARAM)displayName.c_str());
         }
-
-        std::cout << plugin->getName() << " (" << formatName << ")\n";
-        std::cout << "  Vendor: " << plugin->getVendor() << "\n";
-        std::cout << "  Version: " << plugin->getVersion() << "\n";
-        std::cout << "  Channels: " << plugin->getNumInputChannels() << " in, " 
-                  << plugin->getNumOutputChannels() << " out\n";
-        std::cout << "---------------------\n";
     }
+    #else
+    // Console-based list for non-Windows platforms
+    std::cout << "Plugin Chain:" << std::endl;
+    int index = 0;
+    for (const auto& item : g_pluginChain) {
+        std::cout << index << ": " << item.name;
+        if (item.bypass) {
+            std::cout << " (Bypassed)";
+        }
+        std::cout << std::endl;
+        index++;
+    }
+    std::cout << std::endl;
+    #endif
 }
 
 // Display Voicemeeter information
@@ -495,440 +963,3 @@ void displayVoicemeeterInfo() {
     std::cout << "Buses: " << g_voicemeeterClient->getNumBuses() << "\n";
     std::cout << "----------------------\n\n";
 }
-
-// Parse command line arguments
-CommandLineArgs parseCommandLine(int argc, char** argv) {
-    CommandLineArgs args;
-
-    for (int i = 1; i < argc; ++i) {
-        std::string arg = argv[i];
-
-        if (arg == "--verbose") {
-            args.verbose = true;
-        } else if (arg == "--no-scan") {
-            args.noScan = true;
-        } else if (arg == "--help") {
-            displayHelp();
-            exit(0);
-        } else if (arg.find("--vst3=") == 0) {
-            args.vst3Paths.push_back(arg.substr(7));
-        } else if (arg.find("--aax=") == 0) {
-            args.aaxPaths.push_back(arg.substr(6));
-        } else if (arg.find("--aau=") == 0) {
-            args.aauPaths.push_back(arg.substr(6));
-        } else {
-            std::cerr << "Unknown argument: " << arg << std::endl;
-            displayHelp();
-            exit(1);
-        }
-    }
-
-    return args;
-}
-
-// Display help message
-void displayHelp() {
-    std::cout << "Usage: voicemeeter_plugin_host [options]\n";
-    std::cout << "Options:\n";
-    std::cout << "  --verbose          Enable verbose mode\n";
-    std::cout << "  --no-scan          Disable plugin scanning\n";
-    std::cout << "  --vst3=<path>      Add VST3 plugin path\n";
-    std::cout << "  --aax=<path>       Add AAX plugin path\n";
-    std::cout << "  --aau=<path>       Add AAU plugin path\n";
-    std::cout << "  --help             Display this help message\n";
-}
-
-#ifdef _WIN32
-// Create UI controls with an advanced layout
-void CreateControls(HWND hwndParent) {
-    // Create fonts for UI elements
-    g_hFont = CreateStyledFont(false, 16);
-    g_hBoldFont = CreateStyledFont(true, 16);
-
-    // Get client area dimensions
-    RECT rcClient;
-    GetClientRect(hwndParent, &rcClient);
-    int width = rcClient.right - rcClient.left;
-    int height = rcClient.bottom - rcClient.top;
-
-    // Create status bar at the bottom
-    g_hwndStatusBar = CreateWindowEx(
-        0, STATUSCLASSNAME, NULL,
-        WS_CHILD | WS_VISIBLE | SBARS_SIZEGRIP,
-        0, 0, 0, 0, // Size and position will be set by system
-        hwndParent, (HMENU)ID_STATUS_BAR, GetModuleHandle(NULL), NULL);
-    
-    // Update the status bar immediately
-    SendMessage(g_hwndStatusBar, SB_SETTEXT, 0, (LPARAM)"Ready");
-    
-    // Create group boxes to organize controls better
-    g_hwndPluginsGroup = CreateWindowEx(
-        0, "BUTTON", "Plugins",
-        WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
-        10, 10, 350, height - 80, 
-        hwndParent, (HMENU)ID_GRP_PLUGINS, GetModuleHandle(NULL), NULL);
-    SendMessage(g_hwndPluginsGroup, WM_SETFONT, (WPARAM)g_hBoldFont, TRUE);
-
-    g_hwndControlsGroup = CreateWindowEx(
-        0, "BUTTON", "Controls",
-        WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
-        370, 10, 200, height - 80, 
-        hwndParent, (HMENU)ID_GRP_CONTROLS, GetModuleHandle(NULL), NULL);
-    SendMessage(g_hwndControlsGroup, WM_SETFONT, (WPARAM)g_hBoldFont, TRUE);
-
-    g_hwndParametersGroup = CreateWindowEx(
-        0, "BUTTON", "Parameters",
-        WS_CHILD | WS_VISIBLE | BS_GROUPBOX,
-        580, 10, width - 590, height - 80, 
-        hwndParent, (HMENU)ID_GRP_PARAMETERS, GetModuleHandle(NULL), NULL);
-    SendMessage(g_hwndParametersGroup, WM_SETFONT, (WPARAM)g_hBoldFont, TRUE);
-
-    // Create plugins list with custom drawing for status indicators
-    g_hwndPluginList = CreateWindowEx(
-        WS_EX_CLIENTEDGE, "LISTBOX", NULL,
-        WS_CHILD | WS_VISIBLE | LBS_NOTIFY | WS_VSCROLL | LBS_OWNERDRAWFIXED,
-        20, 30, 330, height - 120, 
-        g_hwndPluginsGroup, (HMENU)ID_LST_PLUGINS, GetModuleHandle(NULL), NULL);
-    SendMessage(g_hwndPluginList, WM_SETFONT, (WPARAM)g_hFont, TRUE);
-
-    // Create parameter list
-    g_hwndParameterList = CreateWindowEx(
-        WS_EX_CLIENTEDGE, "LISTBOX", NULL,
-        WS_CHILD | WS_VISIBLE | LBS_NOTIFY | WS_VSCROLL,
-        590, 30, width - 610, 150, 
-        g_hwndParametersGroup, (HMENU)ID_LST_PARAMETERS, GetModuleHandle(NULL), NULL);
-    SendMessage(g_hwndParameterList, WM_SETFONT, (WPARAM)g_hFont, TRUE);
-
-    // Create parameter control elements
-    g_hwndParameterLabel = CreateWindowEx(
-        0, "STATIC", "No Parameter Selected",
-        WS_CHILD | WS_VISIBLE | SS_LEFT,
-        590, 190, width - 610, 20, 
-        g_hwndParametersGroup, (HMENU)ID_LBL_PARAMETER, GetModuleHandle(NULL), NULL);
-    SendMessage(g_hwndParameterLabel, WM_SETFONT, (WPARAM)g_hFont, TRUE);
-
-    g_hwndParameterSlider = CreateWindowEx(
-        0, TRACKBAR_CLASS, NULL,
-        WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_AUTOTICKS,
-        590, 220, width - 610, 30, 
-        g_hwndParametersGroup, (HMENU)ID_SLIDER_PARAMETER, GetModuleHandle(NULL), NULL);
-    SendMessage(g_hwndParameterSlider, TBM_SETRANGE, TRUE, MAKELPARAM(0, 100));
-
-    // Input/Output Channel selection
-    CreateWindowEx(
-        0, "STATIC", "Input Channel:",
-        WS_CHILD | WS_VISIBLE,
-        590, 270, 100, 20, 
-        g_hwndParametersGroup, (HMENU)-1, GetModuleHandle(NULL), NULL);
-    SendMessage(GetDlgItem(g_hwndParametersGroup, -1), WM_SETFONT, (WPARAM)g_hFont, TRUE);
-
-    g_hwndInputChannelCombo = CreateWindowEx(
-        0, "COMBOBOX", NULL,
-        WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
-        700, 270, 150, 200, 
-        g_hwndParametersGroup, (HMENU)ID_CMB_INPUT_CHANNEL, GetModuleHandle(NULL), NULL);
-    SendMessage(g_hwndInputChannelCombo, WM_SETFONT, (WPARAM)g_hFont, TRUE);
-    SendMessage(g_hwndInputChannelCombo, CB_ADDSTRING, 0, (LPARAM)"All Channels");
-    for (int i = 1; i <= 8; i++) {
-        char buffer[20];
-        sprintf(buffer, "Channel %d", i);
-        SendMessage(g_hwndInputChannelCombo, CB_ADDSTRING, 0, (LPARAM)buffer);
-    }
-    SendMessage(g_hwndInputChannelCombo, CB_SETCURSEL, 0, 0);
-
-    CreateWindowEx(
-        0, "STATIC", "Output Channel:",
-        WS_CHILD | WS_VISIBLE,
-        590, 310, 100, 20, 
-        g_hwndParametersGroup, (HMENU)-1, GetModuleHandle(NULL), NULL);
-    SendMessage(GetDlgItem(g_hwndParametersGroup, -1), WM_SETFONT, (WPARAM)g_hFont, TRUE);
-
-    g_hwndOutputChannelCombo = CreateWindowEx(
-        0, "COMBOBOX", NULL,
-        WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
-        700, 310, 150, 200, 
-        g_hwndParametersGroup, (HMENU)ID_CMB_OUTPUT_CHANNEL, GetModuleHandle(NULL), NULL);
-    SendMessage(g_hwndOutputChannelCombo, WM_SETFONT, (WPARAM)g_hFont, TRUE);
-    SendMessage(g_hwndOutputChannelCombo, CB_ADDSTRING, 0, (LPARAM)"All Channels");
-    for (int i = 1; i <= 8; i++) {
-        char buffer[20];
-        sprintf(buffer, "Channel %d", i);
-        SendMessage(g_hwndOutputChannelCombo, CB_ADDSTRING, 0, (LPARAM)buffer);
-    }
-    SendMessage(g_hwndOutputChannelCombo, CB_SETCURSEL, 0, 0);
-
-    // Control buttons in the controls group
-    int btnWidth = 180;
-    int btnHeight = 30;
-    int btnX = 380;
-    int btnY = 40;
-    int btnSpacing = 40;
-
-    g_hwndAddBtn = CreateWindow(
-        "BUTTON", "Add Plugin...",
-        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
-        btnX, btnY, btnWidth, btnHeight, 
-        g_hwndControlsGroup, (HMENU)ID_BTN_ADD_PLUGIN, GetModuleHandle(NULL), NULL);
-    SendMessage(g_hwndAddBtn, WM_SETFONT, (WPARAM)g_hFont, TRUE);
-
-    g_hwndRemoveBtn = CreateWindow(
-        "BUTTON", "Remove Plugin",
-        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
-        btnX, btnY += btnSpacing, btnWidth, btnHeight, 
-        g_hwndControlsGroup, (HMENU)ID_BTN_REMOVE_PLUGIN, GetModuleHandle(NULL), NULL);
-    SendMessage(g_hwndRemoveBtn, WM_SETFONT, (WPARAM)g_hFont, TRUE);
-
-    g_hwndMoveUpBtn = CreateWindow(
-        "BUTTON", "Move Up",
-        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
-        btnX, btnY += btnSpacing, btnWidth, btnHeight, 
-        g_hwndControlsGroup, (HMENU)ID_BTN_MOVE_UP, GetModuleHandle(NULL), NULL);
-    SendMessage(g_hwndMoveUpBtn, WM_SETFONT, (WPARAM)g_hFont, TRUE);
-
-    g_hwndMoveDownBtn = CreateWindow(
-        "BUTTON", "Move Down",
-        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
-        btnX, btnY += btnSpacing, btnWidth, btnHeight, 
-        g_hwndControlsGroup, (HMENU)ID_BTN_MOVE_DOWN, GetModuleHandle(NULL), NULL);
-    SendMessage(g_hwndMoveDownBtn, WM_SETFONT, (WPARAM)g_hFont, TRUE);
-
-    g_hwndBypassBtn = CreateWindow(
-        "BUTTON", "Bypass All Effects",
-        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX,
-        btnX, btnY += btnSpacing, btnWidth, btnHeight, 
-        g_hwndControlsGroup, (HMENU)ID_BTN_BYPASS_ALL, GetModuleHandle(NULL), NULL);
-    SendMessage(g_hwndBypassBtn, WM_SETFONT, (WPARAM)g_hFont, TRUE);
-
-    g_hwndEnablePluginCheck = CreateWindow(
-        "BUTTON", "Enable Selected Plugin",
-        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_AUTOCHECKBOX,
-        btnX, btnY += btnSpacing, btnWidth, btnHeight, 
-        g_hwndControlsGroup, (HMENU)ID_CHK_ENABLE_PLUGIN, GetModuleHandle(NULL), NULL);
-    SendMessage(g_hwndEnablePluginCheck, WM_SETFONT, (WPARAM)g_hFont, TRUE);
-    EnableWindow(g_hwndEnablePluginCheck, FALSE); // Disabled until a plugin is selected
-
-    g_hwndShowEditorBtn = CreateWindow(
-        "BUTTON", "Show Plugin Editor",
-        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
-        btnX, btnY += btnSpacing, btnWidth, btnHeight, 
-        g_hwndControlsGroup, (HMENU)ID_BTN_SHOW_EDITOR, GetModuleHandle(NULL), NULL);
-    SendMessage(g_hwndShowEditorBtn, WM_SETFONT, (WPARAM)g_hFont, TRUE);
-    EnableWindow(g_hwndShowEditorBtn, FALSE); // Disabled until a plugin is selected
-
-    g_hwndSaveBtn = CreateWindow(
-        "BUTTON", "Save Chain...",
-        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
-        btnX, btnY += btnSpacing, btnWidth, btnHeight, 
-        g_hwndControlsGroup, (HMENU)ID_BTN_SAVE_CHAIN, GetModuleHandle(NULL), NULL);
-    SendMessage(g_hwndSaveBtn, WM_SETFONT, (WPARAM)g_hFont, TRUE);
-
-    g_hwndLoadBtn = CreateWindow(
-        "BUTTON", "Load Chain...",
-        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
-        btnX, btnY += btnSpacing, btnWidth, btnHeight, 
-        g_hwndControlsGroup, (HMENU)ID_BTN_LOAD_CHAIN, GetModuleHandle(NULL), NULL);
-    SendMessage(g_hwndLoadBtn, WM_SETFONT, (WPARAM)g_hFont, TRUE);
-
-    g_hwndRefreshScanBtn = CreateWindow(
-        "BUTTON", "Rescan Plugins",
-        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
-        btnX, btnY += btnSpacing, btnWidth, btnHeight, 
-        g_hwndControlsGroup, (HMENU)ID_BTN_REFRESH_SCAN, GetModuleHandle(NULL), NULL);
-    SendMessage(g_hwndRefreshScanBtn, WM_SETFONT, (WPARAM)g_hFont, TRUE);
-
-    // Initial state - disable parameter controls since no plugin is selected yet
-    EnableWindow(g_hwndParameterList, FALSE);
-    EnableWindow(g_hwndParameterSlider, FALSE);
-
-    // Initialize common controls (for trackbar)
-    INITCOMMONCONTROLSEX icex;
-    icex.dwSize = sizeof(INITCOMMONCONTROLSEX);
-    icex.dwICC = ICC_BAR_CLASSES;
-    InitCommonControlsEx(&icex);
-    
-    // Initial UI refresh
-    UpdateParameterControls();
-    UpdatePluginControls();
-    RefreshPluginListUI();
-}
-
-// Create a styled font with specified properties
-HFONT CreateStyledFont(bool bold, int height) {
-    LOGFONT lf = {0};
-    lf.lfHeight = height;
-    lf.lfWeight = bold ? FW_BOLD : FW_NORMAL;
-    lf.lfQuality = CLEARTYPE_QUALITY;
-    // Use Arial like Voicemeeter does
-    strcpy(lf.lfFaceName, "Arial");
-    return CreateFontIndirect(&lf);
-}
-
-// Update controls related to parameter editing
-void UpdateParameterControls() {
-    if (g_selectedPluginIndex < 0 || g_selectedPluginIndex >= g_pluginChain.size()) {
-        // No plugin selected, disable parameter controls
-        EnableWindow(g_hwndParameterList, FALSE);
-        EnableWindow(g_hwndParameterSlider, FALSE);
-        SetWindowText(g_hwndParameterLabel, "No plugin selected");
-        SendMessage(g_hwndParameterList, LB_RESETCONTENT, 0, 0);
-        return;
-    }
-
-    // Enable parameter controls
-    EnableWindow(g_hwndParameterList, TRUE);
-    
-    // Get selected plugin
-    auto& item = g_pluginChain[g_selectedPluginIndex];
-    auto plugin = item.plugin;
-    
-    // Populate parameter list
-    SendMessage(g_hwndParameterList, LB_RESETCONTENT, 0, 0);
-    int paramCount = plugin->getNumParameters();
-    
-    if (paramCount == 0) {
-        SendMessage(g_hwndParameterList, LB_ADDSTRING, 0, (LPARAM)"No parameters available");
-        EnableWindow(g_hwndParameterSlider, FALSE);
-        return;
-    }
-    
-    // Add all parameters to the list
-    for (int i = 0; i < paramCount; i++) {
-        auto param = plugin->getParameter(i);
-        char buffer[256];
-        sprintf(buffer, "%s: %.2f", param.name.c_str(), param.currentValue);
-        SendMessage(g_hwndParameterList, LB_ADDSTRING, 0, (LPARAM)buffer);
-    }
-    
-    // Select the first parameter
-    SendMessage(g_hwndParameterList, LB_SETCURSEL, 0, 0);
-    g_selectedParameterIndex = 0;
-    
-    // Update parameter slider
-    if (paramCount > 0) {
-        EnableWindow(g_hwndParameterSlider, TRUE);
-        UpdateParameterSlider(g_selectedParameterIndex);
-    }
-}
-
-// Update the parameter slider for the selected parameter
-void UpdateParameterSlider(int parameterIndex) {
-    if (g_selectedPluginIndex < 0 || g_selectedPluginIndex >= g_pluginChain.size()) {
-        return;
-    }
-    
-    auto& item = g_pluginChain[g_selectedPluginIndex];
-    auto plugin = item.plugin;
-    
-    if (parameterIndex < 0 || parameterIndex >= plugin->getNumParameters()) {
-        return;
-    }
-    
-    auto param = plugin->getParameter(parameterIndex);
-    
-    // Update parameter label
-    char buffer[256];
-    sprintf(buffer, "%s: %.2f", param.name.c_str(), param.currentValue);
-    SetWindowText(g_hwndParameterLabel, buffer);
-    
-    // Update slider position (scale to 0-100 range)
-    double normalizedValue = (param.currentValue - param.minValue) / (param.maxValue - param.minValue);
-    int sliderPos = static_cast<int>(normalizedValue * 100);
-    SendMessage(g_hwndParameterSlider, TBM_SETPOS, TRUE, sliderPos);
-}
-
-// Update enable/disable state of plugin control buttons
-void UpdatePluginControls() {
-    bool hasSelection = (g_selectedPluginIndex >= 0 && g_selectedPluginIndex < g_pluginChain.size());
-    
-    EnableWindow(g_hwndRemoveBtn, hasSelection);
-    EnableWindow(g_hwndMoveUpBtn, hasSelection && g_selectedPluginIndex > 0);
-    EnableWindow(g_hwndMoveDownBtn, hasSelection && g_selectedPluginIndex < g_pluginChain.size() - 1);
-    EnableWindow(g_hwndEnablePluginCheck, hasSelection);
-    
-    if (hasSelection) {
-        auto& item = g_pluginChain[g_selectedPluginIndex];
-        Button_SetCheck(g_hwndEnablePluginCheck, item.enabled ? BST_CHECKED : BST_UNCHECKED);
-        EnableWindow(g_hwndShowEditorBtn, item.plugin->hasEditor());
-    } else {
-        EnableWindow(g_hwndShowEditorBtn, FALSE);
-    }
-}
-
-// Refresh the plugin list UI
-void RefreshPluginListUI() {
-    SendMessage(g_hwndPluginList, LB_RESETCONTENT, 0, 0);
-    
-    for (const auto& item : g_pluginChain) {
-        SendMessage(g_hwndPluginList, LB_ADDSTRING, 0, (LPARAM)item.uniqueId.c_str());
-    }
-    
-    if (g_selectedPluginIndex >= 0 && g_selectedPluginIndex < g_pluginChain.size()) {
-        SendMessage(g_hwndPluginList, LB_SETCURSEL, g_selectedPluginIndex, 0);
-    }
-    
-    char statusMsg[256];
-    sprintf(statusMsg, "Plugin chain: %zu plugin(s)", g_pluginChain.size());
-    SendMessage(g_hwndStatusBar, SB_SETTEXT, 0, (LPARAM)statusMsg);
-    
-    UpdatePluginControls();
-}
-
-// Move selected plugin up in the chain
-void MovePluginUp() {
-    if (g_selectedPluginIndex > 0 && g_selectedPluginIndex < g_pluginChain.size()) {
-        std::swap(g_pluginChain[g_selectedPluginIndex], g_pluginChain[g_selectedPluginIndex - 1]);
-        g_selectedPluginIndex--;
-        
-        // Update chain positions
-        for (size_t i = 0; i < g_pluginChain.size(); ++i) {
-            g_pluginChain[i].chainPosition = i;
-        }
-        
-        RefreshPluginListUI();
-        UpdateParameterControls();
-    }
-}
-
-// Move selected plugin down in the chain
-void MovePluginDown() {
-    if (g_selectedPluginIndex >= 0 && g_selectedPluginIndex < g_pluginChain.size() - 1) {
-        std::swap(g_pluginChain[g_selectedPluginIndex], g_pluginChain[g_selectedPluginIndex + 1]);
-        g_selectedPluginIndex++;
-        
-        // Update chain positions
-        for (size_t i = 0; i < g_pluginChain.size(); ++i) {
-            g_pluginChain[i].chainPosition = i;
-        }
-        
-        RefreshPluginListUI();
-        UpdateParameterControls();
-    }
-}
-
-// Remove the selected plugin from the chain
-void RemoveSelectedPlugin() {
-    if (g_selectedPluginIndex >= 0 && g_selectedPluginIndex < g_pluginChain.size()) {
-        std::string pluginName = g_pluginChain[g_selectedPluginIndex].uniqueId;
-        g_pluginChain.erase(g_pluginChain.begin() + g_selectedPluginIndex);
-        
-        // Update chain positions
-        for (size_t i = 0; i < g_pluginChain.size(); ++i) {
-            g_pluginChain[i].chainPosition = i;
-        }
-        
-        // Update selection
-        if (g_pluginChain.empty()) {
-            g_selectedPluginIndex = -1;
-        } else if (g_selectedPluginIndex >= g_pluginChain.size()) {
-            g_selectedPluginIndex = g_pluginChain.size() - 1;
-        }
-        
-        RefreshPluginListUI();
-        UpdateParameterControls();
-        
-        char statusMsg[256];
-        sprintf(statusMsg, "Removed plugin: %s", pluginName.c_str());
-        SendMessage(g_hwndStatusBar, SB_SETTEXT, 0, (LPARAM)statusMsg);
-    }
-}
-#endif

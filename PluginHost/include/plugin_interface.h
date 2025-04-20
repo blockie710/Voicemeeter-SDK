@@ -1,8 +1,8 @@
 /**
  * plugin_interface.h
  * 
- * Plugin interface for Voicemeeter Plugin Host
- * Supports VST3, AAX, AAU, ARA, LUA, and REAPER plugin formats
+ * Base interface for audio plugins in the Voicemeeter Plugin Host
+ * Provides a common interface for all plugin types (VST3, AAX, etc.)
  */
 
 #ifndef PLUGIN_INTERFACE_H
@@ -12,94 +12,102 @@
 #include <vector>
 #include <memory>
 
-// Plugin format types
+// Supported plugin formats
 enum class PluginFormat {
-    VST3,
-    AAX,
-    AAU,
-    ARA,    // New: Audio Random Access
-    LUA,    // New: LUA script plugins
-    REAPER, // New: REAPER extensions and JSFX
-    UNKNOWN
+    UNKNOWN = 0,
+    VST3 = 1,
+    AAX = 2,
+    AAU = 3, // AudioUnit
+    ARA = 4, // ARA2
+    LUA = 5, // Lua scripts
+    REAPER = 6 // JSFX plugins
 };
 
-// Parameter types for plugin parameters
-enum class ParameterType {
-    FLOAT,
-    INT,
-    BOOL,
-    STRING,
-    ENUM
-};
-
-// Plugin parameter descriptor
+// Parameter information
 struct PluginParameter {
-    std::string id;
     std::string name;
-    ParameterType type;
-    double minValue;
-    double maxValue;
-    double defaultValue;
-    double currentValue;
-    std::vector<std::string> enumValues; // For enum parameters
-    bool automatable;
+    std::string label;
+    std::string unit;
+    float minValue = 0.0f;
+    float maxValue = 1.0f;
+    float defaultValue = 0.0f;
+    float currentValue = 0.0f;
+    bool isAutomatable = true;
+    bool isDiscrete = false;
+    int stepCount = 0;
+    
+    // For discrete parameters
+    std::vector<std::string> valueNames;
 };
 
-// Base plugin interface that will be implemented by specific format handlers
+// Plugin description with basic info
+struct PluginDescription {
+    std::string name;
+    std::string vendor;
+    std::string version;
+    std::string path;
+    std::string uniqueId;
+    PluginFormat format;
+    int numInputs = 0;
+    int numOutputs = 0;
+    bool hasMidiInput = false;
+    bool hasMidiOutput = false;
+    bool hasEditor = false;
+};
+
+// Base interface for plugin instances
 class PluginInstance {
 public:
     virtual ~PluginInstance() = default;
+    
+    // Basic initialization
+    virtual bool initialize() = 0;
+    
+    // Audio processing
+    virtual void process(float** inputs, float** outputs, int numInputs, int numOutputs, int numSamples) = 0;
+    virtual void suspend() = 0;
+    virtual void resume() = 0;
     
     // Plugin information
     virtual std::string getName() const = 0;
     virtual std::string getVendor() const = 0;
     virtual std::string getVersion() const = 0;
-    virtual PluginFormat getFormat() const = 0;
+    virtual std::string getUniqueId() const = 0;
+    virtual const char* getFormatName() const = 0;
     
-    // Audio processing
-    virtual void prepareToPlay(double sampleRate, int maxSamplesPerBlock) = 0;
-    virtual void processBlock(float** inputBuffers, float** outputBuffers, int numInputs, int numOutputs, int numSamples) = 0;
-    virtual void releaseResources() = 0;
-    
-    // Parameter handling
-    virtual int getNumParameters() const = 0;
-    virtual PluginParameter getParameter(int index) const = 0;
-    virtual void setParameterValue(int index, double value) = 0;
-    virtual double getParameterValue(int index) const = 0;
-    virtual void setParameterValueByName(const std::string& name, double value) = 0;
-    
-    // Plugin I/O configuration
-    virtual int getNumInputChannels() const = 0;
-    virtual int getNumOutputChannels() const = 0;
+    // GUI editor
     virtual bool hasEditor() const = 0;
-    virtual void* openEditor(void* parentWindow) = 0;
-    virtual void closeEditor() = 0;
+    virtual bool showEditor(void* parent) = 0;
+    virtual void hideEditor() = 0;
     
-    // Advanced features
-    virtual bool supportsFeature(const std::string& featureName) const { return false; }
-    virtual void* getExtension(const std::string& extensionId) { return nullptr; }
+    // Parameters
+    virtual int getParameterCount() const = 0;
+    virtual PluginParameter getParameter(int index) const = 0;
+    virtual bool setParameter(int index, float value) = 0;
     
-    // Enable/disable state - default implementation
-    virtual bool isEnabled() const { return true; }
-    virtual void setEnabled(bool enabled) {}
-    
-    // Get supported plugin formats
-    static std::vector<PluginFormat> getSupportedFormats();
+    // Presets
+    virtual int getPresetCount() const = 0;
+    virtual std::string getPresetName(int index) const = 0;
+    virtual bool loadPreset(int index) = 0;
+    virtual bool savePreset(const std::string& name) = 0;
 };
 
-// Plugin scanner interface to discover plugins
+// Base interface for plugin scanners
 class PluginScanner {
 public:
     virtual ~PluginScanner() = default;
     
-    // Scan for plugins of a specific format in a directory
-    virtual std::vector<std::string> scanDirectory(const std::string& directory, PluginFormat format) = 0;
+    // Scan a directory for plugins
+    virtual std::vector<PluginDescription> scanDirectory(const std::string& directory) = 0;
     
-    // Load a plugin by path
-    virtual std::shared_ptr<PluginInstance> loadPlugin(const std::string& path, PluginFormat format) = 0;
+    // Load a specific plugin by path
+    virtual std::shared_ptr<PluginInstance> loadPlugin(const std::string& path) = 0;
 };
 
-// Factory function to create scanner for a specific format
+// Factory function to create plugin scanner for a format
 std::unique_ptr<PluginScanner> createPluginScanner(PluginFormat format);
+
+// Get list of supported plugin formats
+std::vector<PluginFormat> PluginInstance::getSupportedFormats();
 
 #endif // PLUGIN_INTERFACE_H
