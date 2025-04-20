@@ -148,7 +148,7 @@ void* getVoicemeeterProcAddress(const char* procName) {
         return nullptr;
     }
     
-    void* procAddress = GetProcAddress(g_hVoicemeeterRemote, procName);
+    void* procAddress = (void*)GetProcAddress(g_hVoicemeeterRemote, procName);
     if (!procAddress) {
         g_logger.log(PluginLogger::Level::Error, "Failed to get Voicemeeter procedure address: " + std::string(procName));
     }
