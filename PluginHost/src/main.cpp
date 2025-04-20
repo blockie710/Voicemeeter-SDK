@@ -15,6 +15,19 @@
 #include "../include/aax_plugin.h"
 #include "../include/aau_plugin.h"
 
+// Voicemeeter theme colors
+#define VM_COLOR_BACKGROUND         RGB(18, 30, 40)
+#define VM_COLOR_BUTTON_BG          RGB(44, 61, 77)
+#define VM_COLOR_BUTTON_HOVER       RGB(55, 75, 95)
+#define VM_COLOR_TEXT               RGB(200, 200, 200)
+#define VM_COLOR_TEXT_HIGHLIGHT     RGB(255, 255, 255)
+#define VM_COLOR_SLIDER_BG          RGB(30, 45, 60)
+#define VM_COLOR_SLIDER_ACTIVE      RGB(110, 190, 150)
+#define VM_COLOR_SLIDER_RED         RGB(190, 80, 80)
+#define VM_COLOR_LISTBOX_BG         RGB(25, 40, 55)
+#define VM_COLOR_STATUS_BG          RGB(12, 20, 30)
+#define VM_COLOR_GROUP_BORDER       RGB(65, 85, 105)
+
 // Structure to hold command line arguments
 struct CommandLineArgs {
     std::vector<std::string> vst3Paths;
