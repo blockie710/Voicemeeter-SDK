@@ -120,3 +120,23 @@ cmake --build .
 ### Using Visual Studio
 
 Open the generated solution file in the `build` directory after running the setup script.
+
+## GitHub Actions & CI/CD
+
+This project uses GitHub Actions for continuous integration and delivery. To make the workflows function correctly, you'll need to set up the following secrets in your repository settings:
+
+1. **NPM_TOKEN**: Generate a token from your npm account to enable automated publishing
+   - Go to npmjs.com → User Settings → Access Tokens → Generate New Token
+   - Add this token as a repository secret named `NPM_TOKEN`
+
+2. **CODACY_PROJECT_TOKEN**: (Optional) If using Codacy for code quality analysis
+   - Get your project token from Codacy dashboard
+   - Add as a repository secret named `CODACY_PROJECT_TOKEN`
+
+The following CI/CD processes are configured:
+- Automated testing on multiple Node.js versions
+- Automatic publishing when releases are created
+- Dependency updates via Dependabot
+- Code quality analysis with Codacy
+- Security scanning with CodeQL
+- Stale issue management
