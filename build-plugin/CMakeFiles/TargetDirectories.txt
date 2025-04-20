@@ -1,0 +1,17 @@
+/workspaces/Voicemeeter-SDK/build-plugin/CMakeFiles/install/strip.dir
+/workspaces/Voicemeeter-SDK/build-plugin/CMakeFiles/install/local.dir
+/workspaces/Voicemeeter-SDK/build-plugin/CMakeFiles/edit_cache.dir
+/workspaces/Voicemeeter-SDK/build-plugin/CMakeFiles/package_source.dir
+/workspaces/Voicemeeter-SDK/build-plugin/CMakeFiles/install.dir
+/workspaces/Voicemeeter-SDK/build-plugin/CMakeFiles/list_install_components.dir
+/workspaces/Voicemeeter-SDK/build-plugin/CMakeFiles/rebuild_cache.dir
+/workspaces/Voicemeeter-SDK/build-plugin/CMakeFiles/package.dir
+/workspaces/Voicemeeter-SDK/build-plugin/PluginHost/CMakeFiles/install/strip.dir
+/workspaces/Voicemeeter-SDK/build-plugin/PluginHost/CMakeFiles/install/local.dir
+/workspaces/Voicemeeter-SDK/build-plugin/PluginHost/CMakeFiles/edit_cache.dir
+/workspaces/Voicemeeter-SDK/build-plugin/PluginHost/CMakeFiles/package_source.dir
+/workspaces/Voicemeeter-SDK/build-plugin/PluginHost/CMakeFiles/install.dir
+/workspaces/Voicemeeter-SDK/build-plugin/PluginHost/CMakeFiles/list_install_components.dir
+/workspaces/Voicemeeter-SDK/build-plugin/PluginHost/CMakeFiles/rebuild_cache.dir
+/workspaces/Voicemeeter-SDK/build-plugin/PluginHost/CMakeFiles/package.dir
+/workspaces/Voicemeeter-SDK/build-plugin/PluginHost/CMakeFiles/VoicemeeterPluginHost.dir
